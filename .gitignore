@@ -1,0 +1,32 @@
+# OS / editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+*.log
+
+# Runtime and build outputs
+node_modules/
+dist/
+build/
+out/
+coverage/
+.vite/
+.cache/
+.DS_Store
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+
+# Dependency lock files are usually okay to commit, but keep generated/test artifacts out
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Uploads and generated files
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Ignore duplicate/unwanted workspace mirror
+crypto-haven-net-main/
