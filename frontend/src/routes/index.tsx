@@ -1,5 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Link } from "@tanstack/react-router";
+import { Link } from "react-router-dom";
 import { ArrowRight, ShieldCheck, Zap, Globe2, TrendingUp, BarChart3, Wallet } from "lucide-react";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
@@ -8,19 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useStore } from "@/context/store";
 import { formatPrice } from "@/services/market-data";
 
-export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "NovaTrade — Trade Crypto, Forex & Stocks" },
-      { name: "description", content: "A premium all-in-one trading platform for crypto, forex and stocks with real-time charts and a beautiful, fast interface." },
-      { property: "og:title", content: "NovaTrade — Premium Trading Platform" },
-      { property: "og:description", content: "Crypto, forex and stocks on one premium trading platform." },
-    ],
-  }),
-  component: Index,
-});
-
-function Index() {
+export default function IndexPage() {
   const { assets } = useStore();
   const top = assets.slice(0, 6);
   return (

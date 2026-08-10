@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { Link } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -16,17 +16,7 @@ import {
   type VipTierStatus,
 } from "@/services/vip";
 
-export const Route = createFileRoute("/recharge-activity")({
-  head: () => ({
-    meta: [
-      { title: "Recharge Activity — NovaTrade" },
-      { name: "description", content: "Claim VIP recharge rewards. Each VIP reward can only be claimed once." },
-    ],
-  }),
-  component: RechargeActivityPage,
-});
-
-function RechargeActivityPage() {
+export default function RechargeActivityPage() {
   return (
     <RequireAuth roles={["user"]}>
       <RechargeActivityContent />

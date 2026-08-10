@@ -1,4 +1,3 @@
-import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Send, MessageSquareText, User as UserIcon } from "lucide-react";
@@ -12,17 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { subscribeRealtime, type RealtimeMessage } from "@/services/realtime";
 import { apiListMySupportThreads, apiListSupportThreads, apiListSupportThreadMessages, apiSendSupportMessage, type SupportMessage, type SupportThread } from "@/services/support";
 
-export const Route = createFileRoute("/support")({
-  head: () => ({
-    meta: [
-      { title: "Customer Support — NovaTrade" },
-      { name: "description", content: "Chat with support staff in real time." },
-    ],
-  }),
-  component: SupportPage,
-});
-
-function SupportPage() {
+export default function SupportPage() {
   return (
     <RequireAuth roles={["user", "admin", "staff"]}>
       <SupportContent />

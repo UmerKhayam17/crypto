@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { ArrowUp, ArrowDown, Timer, ShieldAlert, XCircle, CheckCircle2 } from "lucide-react";
 import { Input } from "@/components/ui/input";

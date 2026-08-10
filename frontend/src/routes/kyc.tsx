@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ShieldCheck, Upload, CheckCircle2, XCircle, Clock, IdCard, Video, Circle, Square, RotateCcw } from "lucide-react";
@@ -11,17 +11,9 @@ import { fileToDataUrl, pickVideoMime, videoBlobToDataUrl } from "@/services/kyc
 
 import { RequireAuth } from "@/components/auth/require-auth";
 
-export const Route = createFileRoute("/kyc")({
-  head: () => ({ meta: [
-    { title: "KYC verification — NovaTrade" },
-    { name: "description", content: "Verify your identity to start depositing and trading on NovaTrade." },
-  ] }),
-  component: KycPage,
-});
-
 const MAX_RECORD_SEC = 6;
 
-function KycPage() {
+export default function KycPage() {
   return (
     <RequireAuth roles={["user"]}>
       <KycContent />
@@ -66,7 +58,7 @@ function KycContent() {
     setBusy(false);
     if (!r.ok) return toast.error(r.msg);
     toast.success(r.msg);
-    nav({ to: "/profile" });
+    nav("/profile");
   };
 
   return (

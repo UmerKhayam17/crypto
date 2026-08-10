@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en" class="overflow-x-hidden">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NovaTrade — Premium Crypto, Forex & Stocks Trading</title>
+    <meta
+      name="description"
+      content="Trade Bitcoin, Ethereum, forex and stocks on NovaTrade — a premium unified trading platform with real-time markets and zero hassle."
+    />
+    <meta property="og:title" content="NovaTrade — Premium Crypto, Forex & Stocks Trading" />
+    <meta
+      property="og:description"
+      content="Trade Bitcoin, Ethereum, forex and stocks on NovaTrade — a premium unified trading platform with real-time markets and zero hassle."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="NovaTrade — Premium Crypto, Forex & Stocks Trading" />
+    <meta
+      name="twitter:description"
+      content="Trade Bitcoin, Ethereum, forex and stocks on NovaTrade — a premium unified trading platform with real-time markets and zero hassle."
+    />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("novatrade-theme");
+          if (t !== "light" && t !== "dark") t = "light";
+          var d = document.documentElement;
+          d.classList.remove("light", "dark");
+          d.classList.add(t);
+          d.style.colorScheme = t;
+        } catch (e) {
+          document.documentElement.classList.add("light");
+        }
+      })();
+    </script>
+  </head>
+  <body class="overflow-x-hidden bg-background text-foreground antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

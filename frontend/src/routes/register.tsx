@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { SiteHeader } from "@/components/layout/site-header";
 import { Input } from "@/components/ui/input";
@@ -11,15 +11,7 @@ import { COUNTRIES } from "@/constants/countries";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
-export const Route = createFileRoute("/register")({
-  head: () => ({ meta: [
-    { title: "Sign up — NovaTrade" },
-    { name: "description", content: "Create your NovaTrade account to start trading. Complete KYC to deposit and trade." },
-  ] }),
-  component: RegisterPage,
-});
-
-function RegisterPage() {
+export default function RegisterPage() {
   const { register, session, authReady } = useStore();
   const nav = useNavigate();
   const [fname, setF] = useState("");
@@ -32,7 +24,7 @@ function RegisterPage() {
 
   useEffect(() => {
     if (!authReady || !session) return;
-    nav({ to: homePathForRole(session.role) });
+    nav(homePathForRole(session.role), { replace: true });
   }, [authReady, session, nav]);
 
   const dialing = COUNTRIES.find((c) => c.code === country)?.dial ?? "";
@@ -44,7 +36,7 @@ function RegisterPage() {
       const r = await register({ fname, lname, email, phone: dialing ? `${dialing} ${phone}` : phone, country, password: pw });
       if (!r.ok) return toast.error(r.msg);
       toast.success("Account created — please complete KYC to start trading");
-      nav({ to: "/kyc" });
+      nav("/kyc");
     } finally {
       setLoading(false);
     }

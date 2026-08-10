@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { Link } from "react-router-dom";
 import { useState, useRef } from "react";
 import { toast } from "sonner";
 import { Copy, Wallet, Upload, CheckCircle2, XCircle, Clock } from "lucide-react";
@@ -12,17 +12,7 @@ import { useStore } from "@/context/store";
 
 import { RequireAuth } from "@/components/auth/require-auth";
 
-export const Route = createFileRoute("/deposit")({
-  head: () => ({
-    meta: [
-      { title: "Deposit USDT — NovaTrade" },
-      { name: "description", content: "Top up your NovaTrade balance with USDT (TRC20). Upload a payment screenshot for verification." },
-    ],
-  }),
-  component: DepositPage,
-});
-
-function DepositPage() {
+export default function DepositPage() {
   return (
     <RequireAuth roles={["user"]}>
       <DepositContent />

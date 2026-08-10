@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { SiteHeader } from "@/components/layout/site-header";
 import { Input } from "@/components/ui/input";
@@ -10,12 +10,7 @@ import { homePathForRole } from "@/lib/route-auth";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
-export const Route = createFileRoute("/login")({
-  head: () => ({ meta: [{ title: "Log in — NovaTrade" }, { name: "description", content: "Log in to your NovaTrade account." }] }),
-  component: LoginPage,
-});
-
-function LoginPage() {
+export default function LoginPage() {
   const { login, session, authReady } = useStore();
   const nav = useNavigate();
   const [email, setEmail] = useState("");
@@ -24,7 +19,7 @@ function LoginPage() {
 
   useEffect(() => {
     if (!authReady || !session) return;
-    nav({ to: homePathForRole(session.role) });
+    nav(homePathForRole(session.role), { replace: true });
   }, [authReady, session, nav]);
 
   const submit = async (e: React.FormEvent) => {
@@ -34,7 +29,7 @@ function LoginPage() {
       const r = await login(email, pw);
       if (!r.ok) return toast.error(r.msg);
       toast.success(r.msg);
-      nav({ to: r.role ? homePathForRole(r.role) : "/portfolio" });
+      nav(r.role ? homePathForRole(r.role) : "/portfolio");
     } finally {
       setLoading(false);
     }

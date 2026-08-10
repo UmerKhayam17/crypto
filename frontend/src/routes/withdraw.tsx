@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ArrowDownToLine, Building2, CheckCircle2, Clock, Wallet, XCircle } from "lucide-react";
@@ -11,17 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useStore } from "@/context/store";
 import { RequireAuth } from "@/components/auth/require-auth";
 
-export const Route = createFileRoute("/withdraw")({
-  head: () => ({
-    meta: [
-      { title: "Withdraw USDT — NovaTrade" },
-      { name: "description", content: "Request a withdrawal to your TRC20 wallet or bank account." },
-    ],
-  }),
-  component: WithdrawPage,
-});
-
-function WithdrawPage() {
+export default function WithdrawPage() {
   return (
     <RequireAuth roles={["user"]}>
       <WithdrawContent />
