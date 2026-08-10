@@ -23,7 +23,7 @@ export type ApiUser = {
   country: string;
   role: "user" | "admin" | "staff";
   suspended?: boolean;
-  forceOutcome: "random" | "win" | "lose";
+  forceOutcome?: "random" | "win" | "lose";
   profitPercent?: number | null;
   lossPercent?: number;
   kyc: {

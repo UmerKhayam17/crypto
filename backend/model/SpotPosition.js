@@ -19,7 +19,7 @@ const spotPositionSchema = new mongoose.Schema(
     openedAt: { type: Number, required: true },
     status: {
       type: String,
-      enum: ["open", "closed"],
+      enum: ["open", "closing", "closed"],
       default: "open",
       index: true,
     },

@@ -31,9 +31,9 @@ export function BinaryTicket({ asset }: { asset: Asset }) {
     else toast.success(r.msg);
   };
 
-  const closeTrade = async (tradeId: string, mark: number) => {
+  const closeTrade = async (tradeId: string) => {
     setClosingId(tradeId);
-    const r = await closeMyTrade(tradeId, mark);
+    const r = await closeMyTrade(tradeId);
     setClosingId(null);
     if (!r.ok) toast.error(r.msg);
     else toast.success(r.msg);
@@ -127,7 +127,6 @@ export function BinaryTicket({ asset }: { asset: Asset }) {
           </div>
           <div className="space-y-2">
             {activeTrades.map((t) => {
-              const mark = t.symbol === asset.symbol ? asset.price : t.entryPrice;
               const isCurrent = t.symbol === asset.symbol;
               return (
                 <div
@@ -151,7 +150,7 @@ export function BinaryTicket({ asset }: { asset: Asset }) {
                     variant="outline"
                     className="h-7 shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10"
                     disabled={closingId === t.id}
-                    onClick={() => closeTrade(t.id, mark)}
+                    onClick={() => closeTrade(t.id)}
                   >
                     {closingId === t.id ? "Closing…" : "Close trade"}
                   </Button>

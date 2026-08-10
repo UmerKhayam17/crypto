@@ -3,9 +3,12 @@ const User = require("../model/User");
 const Settings = require("../model/Settings");
 const formatTrade = require("../utils/formatTrade");
 const { settleTradeDoc, settleTradeForced } = require("../utils/settleTrade");
+const { fetchMarkPrice, isAllowedTradeSymbol } = require("../utils/markPrice");
+const { debitWallet, creditWallet } = require("../utils/wallet");
 const notify = require("../utils/realtimeNotify");
 
 const VALID_DURATIONS = [15, 30, 60, 120, 300];
+let settling = false;
 
 async function getGlobalPayoutPercent() {
   const settings = await Settings.getSettings();
@@ -21,23 +24,49 @@ async function canAccessUser(actor, userId) {
 }
 
 async function settleExpiredTrades() {
-  const now = Date.now();
-  const globalPayout = await getGlobalPayoutPercent();
-  const expired = await Trade.find({ status: "active", expiresAt: { $lte: now } });
-  for (const trade of expired) {
-    const user = await User.findById(trade.user);
-    if (!user) continue;
-    const { payout } = await settleTradeDoc(trade, user, globalPayout);
-    user.wallet = user.wallet || { cashUSDT: 0 };
-    user.wallet.cashUSDT = (user.wallet.cashUSDT || 0) + payout;
-    await user.save();
-    await trade.save();
+  if (settling) return;
+  settling = true;
+  try {
+    const now = Date.now();
+    const globalPayout = await getGlobalPayoutPercent();
+    const expired = await Trade.find({ status: "active", expiresAt: { $lte: now } }).limit(50);
+    for (const trade of expired) {
+      try {
+        const claimed = await Trade.findOneAndUpdate(
+          { _id: trade._id, status: "active" },
+          { $set: { status: "settling" } },
+          { new: true }
+        );
+        if (!claimed) continue;
 
-    const formatted = formatTrade(trade);
-    notify.tradeUpsert(formatted, {
-      userWallet: { cashUSDT: user.wallet.cashUSDT },
-      userId: user._id.toString(),
-    });
+        const user = await User.findById(claimed.user);
+        if (!user) {
+          await Trade.findByIdAndUpdate(claimed._id, { status: "active" });
+          continue;
+        }
+
+        const { payout, won, closePrice } = await settleTradeDoc(claimed, user, globalPayout);
+        claimed.status = won ? "won" : "lost";
+        claimed.closePrice = closePrice;
+        await claimed.save();
+
+        const updatedUser = await creditWallet(user._id, payout);
+        const cash = updatedUser?.wallet?.cashUSDT ?? 0;
+        const formatted = formatTrade(claimed, { staff: false });
+        notify.tradeUpsert(formatted, {
+          userWallet: { cashUSDT: cash },
+          userId: user._id.toString(),
+        });
+      } catch (err) {
+        console.error("Settle one trade error:", err);
+        await Trade.findOneAndUpdate(
+          { _id: trade._id, status: "settling" },
+          { $set: { status: "active" } }
+        ).catch(() => {});
+      }
+    }
+  } finally {
+    settling = false;
   }
 }
 
@@ -56,13 +85,15 @@ exports.createTrade = async (req, res) => {
       return res.status(400).json({ ok: false, msg: "Complete KYC verification to start trading" });
     }
 
-    const { symbol, direction, stake, durationSec, entryPrice } = req.body;
+    const { symbol, direction, stake, durationSec } = req.body;
     const stakeN = Number(stake);
-    const entry = Number(entryPrice);
     const dur = Number(durationSec);
 
     if (!symbol || !direction) {
       return res.status(400).json({ ok: false, msg: "Symbol and direction are required" });
+    }
+    if (!isAllowedTradeSymbol(symbol)) {
+      return res.status(400).json({ ok: false, msg: "Unsupported market symbol" });
     }
     if (!["up", "down"].includes(direction)) {
       return res.status(400).json({ ok: false, msg: "Invalid direction" });
@@ -73,37 +104,44 @@ exports.createTrade = async (req, res) => {
     if (!VALID_DURATIONS.includes(dur)) {
       return res.status(400).json({ ok: false, msg: "Invalid duration" });
     }
-    if (!Number.isFinite(entry) || entry <= 0) {
-      return res.status(400).json({ ok: false, msg: "Invalid entry price" });
+
+    let entry;
+    try {
+      entry = await fetchMarkPrice(symbol, req.body.entryPrice);
+    } catch {
+      return res.status(502).json({ ok: false, msg: "Could not fetch live market price" });
     }
 
-    user.wallet = user.wallet || { cashUSDT: 0 };
-    if (stakeN > user.wallet.cashUSDT) {
+    const debited = await debitWallet(user._id, stakeN);
+    if (!debited) {
       return res.status(400).json({
         ok: false,
-        msg: `Insufficient balance (have $${user.wallet.cashUSDT.toFixed(2)})`,
+        msg: `Insufficient balance (have $${(user.wallet?.cashUSDT ?? 0).toFixed(2)})`,
       });
     }
 
     const now = Date.now();
-    user.wallet.cashUSDT -= stakeN;
-    await user.save();
+    let trade;
+    try {
+      trade = await Trade.create({
+        user: user._id,
+        symbol,
+        direction,
+        stake: stakeN,
+        durationSec: dur,
+        entryPrice: entry,
+        openedAt: now,
+        expiresAt: now + dur * 1000,
+        status: "active",
+      });
+    } catch (err) {
+      await creditWallet(user._id, stakeN);
+      throw err;
+    }
 
-    const trade = await Trade.create({
-      user: user._id,
-      symbol,
-      direction,
-      stake: stakeN,
-      durationSec: dur,
-      entryPrice: entry,
-      openedAt: now,
-      expiresAt: now + dur * 1000,
-      status: "active",
-    });
-
-    const formatted = formatTrade(trade);
+    const formatted = formatTrade(trade, { staff: false });
     notify.tradeUpsert(formatted, {
-      wallet: { cashUSDT: user.wallet.cashUSDT },
+      wallet: { cashUSDT: debited.wallet.cashUSDT },
       userId: user._id.toString(),
     });
 
@@ -111,7 +149,7 @@ exports.createTrade = async (req, res) => {
       ok: true,
       msg: `${direction.toUpperCase()} $${stakeN.toFixed(2)} on ${symbol} for ${dur}s`,
       trade: formatted,
-      wallet: { cashUSDT: user.wallet.cashUSDT },
+      wallet: { cashUSDT: debited.wallet.cashUSDT },
     });
   } catch (err) {
     console.error("Create trade error:", err);
@@ -126,7 +164,7 @@ exports.listMyTrades = async (req, res) => {
     const trades = await Trade.find({ user: req.user._id }).sort({ createdAt: -1 });
     return res.json({
       ok: true,
-      trades: trades.map(formatTrade),
+      trades: trades.map((t) => formatTrade(t, { staff: false })),
       wallet: { cashUSDT: user?.wallet?.cashUSDT ?? 0 },
     });
   } catch (err) {
@@ -154,7 +192,7 @@ exports.listTrades = async (req, res) => {
     }
 
     const trades = await Trade.find(query).populate("user", "fname lname email").sort({ createdAt: -1 });
-    return res.json({ ok: true, trades: trades.map(formatTrade) });
+    return res.json({ ok: true, trades: trades.map((t) => formatTrade(t, { staff: true })) });
   } catch (err) {
     console.error("List trades error:", err);
     return res.status(500).json({ ok: false, msg: "Could not load trades" });
@@ -194,7 +232,7 @@ exports.planTrade = async (req, res) => {
     }
 
     await trade.save();
-    const formatted = formatTrade(trade);
+    const formatted = formatTrade(trade, { staff: true });
     notify.tradeUpsert(formatted);
     return res.json({ ok: true, msg: "Trade outcome planned", trade: formatted });
   } catch (err) {
@@ -213,45 +251,48 @@ exports.closeMyTrade = async (req, res) => {
       return res.status(403).json({ ok: false, msg: "Your account is suspended" });
     }
 
-    const trade = await Trade.findOne({ _id: req.params.id, user: actor._id });
-    if (!trade) return res.status(404).json({ ok: false, msg: "Trade not found" });
-    if (trade.status !== "active") {
+    const claimed = await Trade.findOneAndUpdate(
+      { _id: req.params.id, user: actor._id, status: "active" },
+      { $set: { status: "settling" } },
+      { new: true }
+    );
+    if (!claimed) {
+      const existing = await Trade.findOne({ _id: req.params.id, user: actor._id });
+      if (!existing) return res.status(404).json({ ok: false, msg: "Trade not found" });
       return res.status(400).json({ ok: false, msg: "Trade is already settled" });
     }
 
     const user = await User.findById(actor._id);
-    if (!user) return res.status(404).json({ ok: false, msg: "User not found" });
-
-    const globalPayout = await getGlobalPayoutPercent();
-    const closePrice =
-      req.body.closePrice != null ? Number(req.body.closePrice) : undefined;
-    if (closePrice != null && (!Number.isFinite(closePrice) || closePrice <= 0)) {
-      return res.status(400).json({ ok: false, msg: "Invalid close price" });
+    if (!user) {
+      await Trade.findByIdAndUpdate(claimed._id, { status: "active" });
+      return res.status(404).json({ ok: false, msg: "User not found" });
     }
 
-    const { payout, won } = await settleTradeDoc(trade, user, globalPayout, closePrice);
-    trade.outcomeSource = "user-close";
+    const globalPayout = await getGlobalPayoutPercent();
+    const { payout, won, closePrice } = await settleTradeDoc(claimed, user, globalPayout);
+    claimed.status = won ? "won" : "lost";
+    claimed.closePrice = closePrice;
+    claimed.outcomeSource = "user-close";
+    await claimed.save();
 
-    user.wallet = user.wallet || { cashUSDT: 0 };
-    user.wallet.cashUSDT = (user.wallet.cashUSDT || 0) + payout;
-    await user.save();
-    await trade.save();
+    const updatedUser = await creditWallet(user._id, payout);
+    const cash = updatedUser?.wallet?.cashUSDT ?? 0;
 
-    const formatted = formatTrade(trade);
+    const formatted = formatTrade(claimed, { staff: false });
     notify.tradeUpsert(formatted, {
-      wallet: { cashUSDT: user.wallet.cashUSDT },
-      userWallet: { cashUSDT: user.wallet.cashUSDT },
+      wallet: { cashUSDT: cash },
+      userWallet: { cashUSDT: cash },
       userId: user._id.toString(),
     });
 
-    const pnl = trade.pnl ?? 0;
+    const pnl = claimed.pnl ?? 0;
     return res.json({
       ok: true,
       msg: won
         ? `Trade closed — won +$${pnl.toFixed(2)}`
         : `Trade closed — lost $${Math.abs(pnl).toFixed(2)}`,
       trade: formatted,
-      wallet: { cashUSDT: user.wallet.cashUSDT },
+      wallet: { cashUSDT: cash },
     });
   } catch (err) {
     console.error("Close trade error:", err);
@@ -275,20 +316,36 @@ exports.settleTrade = async (req, res) => {
       return res.status(400).json({ ok: false, msg: "Outcome must be profit or loss" });
     }
 
-    const user = await User.findById(trade.user);
-    if (!user) return res.status(404).json({ ok: false, msg: "User not found" });
+    const claimed = await Trade.findOneAndUpdate(
+      { _id: trade._id, status: "active" },
+      { $set: { status: "settling" } },
+      { new: true }
+    );
+    if (!claimed) return res.status(400).json({ ok: false, msg: "Trade is not active" });
+
+    const user = await User.findById(claimed.user);
+    if (!user) {
+      await Trade.findByIdAndUpdate(claimed._id, { status: "active" });
+      return res.status(404).json({ ok: false, msg: "User not found" });
+    }
 
     const globalPayout = await getGlobalPayoutPercent();
-    const { payout } = settleTradeForced(trade, user, globalPayout, outcome, profitPercent, lossPercent);
+    const { payout } = settleTradeForced(
+      claimed,
+      user,
+      globalPayout,
+      outcome,
+      profitPercent,
+      lossPercent
+    );
+    await claimed.save();
 
-    user.wallet = user.wallet || { cashUSDT: 0 };
-    user.wallet.cashUSDT = (user.wallet.cashUSDT || 0) + payout;
-    await user.save();
-    await trade.save();
+    const updatedUser = await creditWallet(user._id, payout);
+    const cash = updatedUser?.wallet?.cashUSDT ?? 0;
 
-    const formatted = formatTrade(trade);
+    const formatted = formatTrade(claimed, { staff: true });
     notify.tradeUpsert(formatted, {
-      userWallet: { cashUSDT: user.wallet.cashUSDT },
+      userWallet: { cashUSDT: cash },
       userId: user._id.toString(),
     });
 
@@ -296,12 +353,12 @@ exports.settleTrade = async (req, res) => {
       ok: true,
       msg: outcome === "profit" ? "Trade settled as profit" : "Trade settled as loss",
       trade: formatted,
-      userWallet: { cashUSDT: user.wallet.cashUSDT },
+      userWallet: { cashUSDT: cash },
       userId: user._id.toString(),
     });
   } catch (err) {
     console.error("Settle trade error:", err);
-    return res.status(500).json({ ok: false, msg: "Could not settle trade" });
+    return res.status(500).json({ ok: false, msg: err.message || "Could not settle trade" });
   }
 };
 
@@ -309,7 +366,7 @@ exports.deleteTrade = async (req, res) => {
   try {
     const trade = await Trade.findById(req.params.id);
     if (!trade) return res.status(404).json({ ok: false, msg: "Trade not found" });
-    if (trade.status === "active") {
+    if (trade.status === "active" || trade.status === "settling") {
       return res.status(400).json({ ok: false, msg: "Cannot delete an active trade" });
     }
 

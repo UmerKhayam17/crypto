@@ -22,8 +22,13 @@ import {
   apiAssignStaff,
   apiListUsers,
   apiUpdateTradeControl,
+  apiSuspendUser,
+  apiAdjustBalance,
+  apiSetBalance,
+  apiUpdateUserProfile,
+  apiDeleteUser,
 } from "@/services/users";
-import { apiApproveKyc, apiRejectKyc, apiSubmitKyc } from "@/services/kyc";
+import { apiApproveKyc, apiRejectKyc, apiSubmitKyc, blobToFaceFile, dataUrlToFile } from "@/services/kyc";
 import { apiGetPublicSettings, apiUpdateSettings } from "@/services/settings";
 import {
   apiApproveDeposit,
@@ -244,7 +249,7 @@ type Store = {
   payoutPercent: number;            // admin-set, default 85
 
   // KYC
-  submitKyc: (cnicFront: File | null, cnicBack: File | null, face: string) => Promise<{ ok: boolean; msg: string }>;
+  submitKyc: (cnicFront: File | null, cnicBack: File | null, face?: string | Blob | File | null) => Promise<{ ok: boolean; msg: string }>;
 
   // user actions
   placeBinaryTrade: (t: PlaceBinaryInput) => Promise<{ ok: boolean; msg: string }>;
@@ -265,11 +270,11 @@ type Store = {
   managedWithdrawals: Withdrawal[];
   allTrades: BinaryTrade[];
   walletsByUser: Record<string, Wallet>;
-  adminSuspendUser: (userId: string, suspended: boolean) => void;
-  adminAdjustBalance: (userId: string, delta: number) => void;
-  adminSetBalance: (userId: string, balance: number) => void;
-  adminDeleteUser: (userId: string) => void;
-  adminUpdateUser: (userId: string, patch: { fname?: string; lname?: string; email?: string; phone?: string; country?: string }) => { ok: boolean; msg: string };
+  adminSuspendUser: (userId: string, suspended: boolean) => Promise<{ ok: boolean; msg: string }>;
+  adminAdjustBalance: (userId: string, delta: number) => Promise<{ ok: boolean; msg: string }>;
+  adminSetBalance: (userId: string, balance: number) => Promise<{ ok: boolean; msg: string }>;
+  adminDeleteUser: (userId: string) => Promise<{ ok: boolean; msg: string }>;
+  adminUpdateUser: (userId: string, patch: { fname?: string; lname?: string; email?: string; phone?: string; country?: string }) => Promise<{ ok: boolean; msg: string }>;
   adminSetForceOutcome: (
     userId: string,
     outcome: ForceOutcome,
@@ -378,7 +383,7 @@ function apiUserToStoreUser(u: ApiUser): User {
     createdAt: u.createdAt,
     suspended: u.suspended,
     kyc: u.kyc,
-    forceOutcome: u.forceOutcome,
+    forceOutcome: u.forceOutcome ?? "random",
     profitPercent: u.profitPercent ?? null,
     lossPercent: u.lossPercent ?? 100,
   };
@@ -515,6 +520,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!hydrated) return;
     const token = getAuthToken();
     if (!token) {
+      setSession(null);
       setAuthReady(true);
       return;
     }
@@ -698,10 +704,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!cnicFront || !cnicBack) return { ok: false, msg: "Front and back CNIC photos are required" };
 
     try {
-      const data = await apiSubmitKyc({ cnicFront, cnicBack, face: face ? new File([face], "face.webm", { type: "video/webm" }) : undefined });
+      let faceFile: File | undefined;
+      if (face instanceof File) {
+        faceFile = face;
+      } else if (face instanceof Blob) {
+        faceFile = blobToFaceFile(face);
+      } else if (typeof face === "string" && face.startsWith("data:")) {
+        faceFile = dataUrlToFile(face, "face");
+      }
+
+      const data = await apiSubmitKyc({ cnicFront, cnicBack, face: faceFile });
       if (!data.ok) return { ok: false, msg: data.msg || "Could not submit KYC" };
 
-      await loadUsers();
+      if (data.user) {
+        syncUserFromApi(setUsers, setWallets, data.user);
+      } else if (session?.role === "admin" || session?.role === "staff") {
+        await loadUsers();
+      }
       return { ok: true, msg: data.msg || "KYC submitted — awaiting review" };
     } catch (err) {
       return { ok: false, msg: err instanceof Error ? err.message : "Could not submit KYC" };
@@ -876,50 +895,70 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
 
   /* ---------- Admin user mgmt ---------- */
-  const adminSuspendUser: Store["adminSuspendUser"] = (userId, suspended) => {
-    setUsers((xs) => xs.map((u) => (u.id === userId ? { ...u, suspended } : u)));
-    audit(suspended ? "user.suspend" : "user.unsuspend", `${suspended ? "Suspended" : "Reactivated"} ${userNameOf(userId)}`, userId);
-  };
-  const adminAdjustBalance: Store["adminAdjustBalance"] = (userId, delta) => {
-    setWallets((w) => ({ ...w, [userId]: { cashUSDT: (w[userId]?.cashUSDT || 0) + delta } }));
-    audit("wallet.adjust", `Adjusted ${userNameOf(userId)}'s balance by ${delta >= 0 ? "+" : ""}$${delta.toFixed(2)}`, userId);
-  };
-  const adminSetBalance: Store["adminSetBalance"] = (userId, balance) => {
-    if (!Number.isFinite(balance) || balance < 0) return;
-    setWallets((w) => ({ ...w, [userId]: { cashUSDT: balance } }));
-    audit("wallet.set", `Set ${userNameOf(userId)}'s balance to $${balance.toFixed(2)}`, userId);
-  };
-  const adminDeleteUser: Store["adminDeleteUser"] = (userId) => {
-    const name = userNameOf(userId);
-    setUsers((xs) => xs.filter((u) => u.id !== userId));
-    setTrades((xs) => xs.filter((t) => t.userId !== userId));
-    setDeposits((xs) => xs.filter((d) => d.userId !== userId));
-    setWallets((w) => { const n = { ...w }; delete n[userId]; return n; });
-    audit("user.delete", `Deleted user ${name}`, userId);
-  };
-  const adminUpdateUser: Store["adminUpdateUser"] = (userId, patch) => {
-    const fname = patch.fname?.trim();
-    const lname = patch.lname?.trim();
-    const email = patch.email?.trim().toLowerCase();
-    const phone = patch.phone?.trim();
-    const country = patch.country?.trim();
-    if (email != null) {
-      if (!email.includes("@")) return { ok: false, msg: "Invalid email" };
-      if (users.some((u) => u.email === email && u.id !== userId)) return { ok: false, msg: "Email already in use" };
+  const adminSuspendUser: Store["adminSuspendUser"] = async (userId, suspended) => {
+    try {
+      const data = await apiSuspendUser(userId, suspended);
+      const mapped = apiUserToStoreUser(data.user);
+      setUsers((xs) => xs.map((u) => (u.id === userId ? { ...u, ...mapped } : u)));
+      audit(suspended ? "user.suspend" : "user.unsuspend", `${suspended ? "Suspended" : "Reactivated"} ${userNameOf(userId)}`, userId);
+      return { ok: true, msg: data.msg };
+    } catch (err) {
+      return { ok: false, msg: err instanceof Error ? err.message : "Could not update suspension" };
     }
-    setUsers((xs) => xs.map((u) => {
-      if (u.id !== userId) return u;
-      const nf = fname || u.fname, nl = lname || u.lname;
-      return {
-        ...u,
-        fname: nf, lname: nl, name: `${nf} ${nl}`,
-        ...(email ? { email } : {}),
-        ...(phone != null ? { phone } : {}),
-        ...(country ? { country } : {}),
-      };
-    }));
-    audit("user.update", `Updated profile for ${userNameOf(userId)}`, userId);
-    return { ok: true, msg: "User updated" };
+  };
+  const adminAdjustBalance: Store["adminAdjustBalance"] = async (userId, delta) => {
+    try {
+      const data = await apiAdjustBalance(userId, delta);
+      if (data.wallet) setWallets((w) => ({ ...w, [userId]: { cashUSDT: data.wallet.cashUSDT } }));
+      if (data.user) {
+        const mapped = apiUserToStoreUser(data.user);
+        setUsers((xs) => xs.map((u) => (u.id === userId ? { ...u, ...mapped } : u)));
+      }
+      audit("wallet.adjust", `Adjusted ${userNameOf(userId)}'s balance by ${delta >= 0 ? "+" : ""}$${delta.toFixed(2)}`, userId);
+      return { ok: true, msg: data.msg };
+    } catch (err) {
+      return { ok: false, msg: err instanceof Error ? err.message : "Could not adjust balance" };
+    }
+  };
+  const adminSetBalance: Store["adminSetBalance"] = async (userId, balance) => {
+    if (!Number.isFinite(balance) || balance < 0) return { ok: false, msg: "Invalid balance" };
+    try {
+      const data = await apiSetBalance(userId, balance);
+      if (data.wallet) setWallets((w) => ({ ...w, [userId]: { cashUSDT: data.wallet.cashUSDT } }));
+      if (data.user) {
+        const mapped = apiUserToStoreUser(data.user);
+        setUsers((xs) => xs.map((u) => (u.id === userId ? { ...u, ...mapped } : u)));
+      }
+      audit("wallet.set", `Set ${userNameOf(userId)}'s balance to $${balance.toFixed(2)}`, userId);
+      return { ok: true, msg: data.msg };
+    } catch (err) {
+      return { ok: false, msg: err instanceof Error ? err.message : "Could not set balance" };
+    }
+  };
+  const adminDeleteUser: Store["adminDeleteUser"] = async (userId) => {
+    const name = userNameOf(userId);
+    try {
+      await apiDeleteUser(userId);
+      setUsers((xs) => xs.filter((u) => u.id !== userId));
+      setTrades((xs) => xs.filter((t) => t.userId !== userId));
+      setDeposits((xs) => xs.filter((d) => d.userId !== userId));
+      setWallets((w) => { const n = { ...w }; delete n[userId]; return n; });
+      audit("user.delete", `Deleted user ${name}`, userId);
+      return { ok: true, msg: "User deleted" };
+    } catch (err) {
+      return { ok: false, msg: err instanceof Error ? err.message : "Could not delete user" };
+    }
+  };
+  const adminUpdateUser: Store["adminUpdateUser"] = async (userId, patch) => {
+    try {
+      const data = await apiUpdateUserProfile(userId, patch);
+      const mapped = apiUserToStoreUser(data.user);
+      setUsers((xs) => xs.map((u) => (u.id === userId ? { ...u, ...mapped } : u)));
+      audit("user.update", `Updated profile for ${userNameOf(userId)}`, userId);
+      return { ok: true, msg: data.msg || "User updated" };
+    } catch (err) {
+      return { ok: false, msg: err instanceof Error ? err.message : "Could not update user" };
+    }
   };
   const adminSetForceOutcome: Store["adminSetForceOutcome"] = async (userId, outcome, opts) => {
     try {
@@ -1150,6 +1189,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       } else {
         await loadWithdrawals();
       }
+      if (data.wallet && user) {
+        setWallets((w) => ({ ...w, [user.id]: { cashUSDT: data.wallet!.cashUSDT } }));
+      }
       return { ok: true, msg: data.msg || "Withdrawal submitted. Awaiting admin verification." };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Could not submit withdrawal";
@@ -1159,8 +1201,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const cancelMyWithdrawal: Store["cancelMyWithdrawal"] = async (id) => {
     try {
-      await apiCancelWithdrawal(id);
+      const data = await apiCancelWithdrawal(id);
       setWithdrawals((xs) => xs.filter((w) => !(w.id === id && w.userId === user?.id && w.status === "pending")));
+      if (data.wallet && user) {
+        setWallets((w) => ({ ...w, [user.id]: { cashUSDT: data.wallet!.cashUSDT } }));
+      }
       return { ok: true, msg: "Request cancelled" };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Could not cancel withdrawal";

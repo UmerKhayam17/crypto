@@ -7,7 +7,7 @@ import { SiteFooter } from "@/components/layout/site-footer";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useStore } from "@/context/store";
-import { fileToDataUrl, pickVideoMime, videoBlobToDataUrl } from "@/services/kyc";
+import { fileToDataUrl, pickVideoMime, videoBlobToDataUrl, blobToFaceFile } from "@/services/kyc";
 
 import { RequireAuth } from "@/components/auth/require-auth";
 
@@ -29,6 +29,7 @@ function KycContent() {
   const [frontFile, setFrontFile] = useState<File | null>(null);
   const [backFile, setBackFile] = useState<File | null>(null);
   const [faceVideo, setFaceVideo] = useState("");
+  const [faceBlob, setFaceBlob] = useState<Blob | null>(null);
   const [busy, setBusy] = useState(false);
 
   if (!user) return null;
@@ -54,7 +55,8 @@ function KycContent() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    const r = await submitKyc(frontFile, backFile, faceVideo);
+    const facePayload = faceBlob ? blobToFaceFile(faceBlob) : faceVideo || null;
+    const r = await submitKyc(frontFile, backFile, facePayload);
     setBusy(false);
     if (!r.ok) return toast.error(r.msg);
     toast.success(r.msg);
@@ -91,7 +93,13 @@ function KycContent() {
             <ImageUploadCard label="CNIC — Front" dataUrl={front} onFile={(f) => onImage("front", f)} />
             <ImageUploadCard label="CNIC — Back" dataUrl={back} onFile={(f) => onImage("back", f)} />
             <div className="md:col-span-2">
-              <FaceVideoRecorder dataUrl={faceVideo} onChange={setFaceVideo} />
+              <FaceVideoRecorder
+                dataUrl={faceVideo}
+                onChange={(url, blob) => {
+                  setFaceVideo(url);
+                  setFaceBlob(blob ?? null);
+                }}
+              />
             </div>
             <div className="md:col-span-2">
               <Button type="submit" disabled={busy || !front || !back} className="w-full bg-primary text-primary-foreground">
@@ -149,6 +157,7 @@ function ImageUploadCard({ label, dataUrl, onFile }: { label: string; dataUrl: s
           <div className="text-center text-xs text-muted-foreground">
             <Upload className="mx-auto h-5 w-5" />
             <div className="mt-1">Click to upload</div>
+            <div className="mt-0.5 text-[10px]">JPG, PNG, WebP · max 10 MB</div>
           </div>
         )}
       </div>
@@ -157,7 +166,13 @@ function ImageUploadCard({ label, dataUrl, onFile }: { label: string; dataUrl: s
   );
 }
 
-export function FaceVideoRecorder({ dataUrl, onChange }: { dataUrl: string; onChange: (v: string) => void }) {
+export function FaceVideoRecorder({
+  dataUrl,
+  onChange,
+}: {
+  dataUrl: string;
+  onChange: (v: string, blob?: Blob | null) => void;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -209,7 +224,7 @@ export function FaceVideoRecorder({ dataUrl, onChange }: { dataUrl: string; onCh
     try {
       const rec = new MediaRecorder(streamRef.current, {
         mimeType: mime || undefined,
-        videoBitsPerSecond: 350_000,
+        videoBitsPerSecond: 250_000,
       });
       recorderRef.current = rec;
       chunksRef.current = [];
@@ -218,8 +233,9 @@ export function FaceVideoRecorder({ dataUrl, onChange }: { dataUrl: string; onCh
         setState("saving");
         const blob = new Blob(chunksRef.current, { type: mime || "video/webm" });
         try {
+          if (blob.size <= 0) throw new Error("Recording is empty — try again");
           const url = await videoBlobToDataUrl(blob);
-          onChange(url);
+          onChange(url, blob);
           stopStream();
           setState("idle");
           setElapsed(0);
@@ -228,7 +244,7 @@ export function FaceVideoRecorder({ dataUrl, onChange }: { dataUrl: string; onCh
           setState("ready");
         }
       };
-      rec.start();
+      rec.start(200);
       setState("recording");
       setElapsed(0);
       timerRef.current = window.setInterval(() => {
@@ -248,13 +264,16 @@ export function FaceVideoRecorder({ dataUrl, onChange }: { dataUrl: string; onCh
       window.clearInterval(timerRef.current);
       timerRef.current = null;
     }
-    recorderRef.current?.state === "recording" && recorderRef.current.stop();
+    if (recorderRef.current?.state === "recording") {
+      recorderRef.current.stop();
+    }
   };
 
   const reset = () => {
-    onChange("");
+    onChange("", null);
     setElapsed(0);
     setState("idle");
+    setErr(null);
   };
 
   return (

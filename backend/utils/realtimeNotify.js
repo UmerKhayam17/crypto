@@ -74,6 +74,15 @@ exports.supportMessageUpsert = (thread, message, extra = {}) => {
   emitUserScoped("support:message", { thread, message, ...extra }, userId);
 };
 
+exports.supportThreadUpdated = (thread, extra = {}) => {
+  const userId =
+    normalizeId(thread?.userId) ||
+    normalizeId(thread?.user) ||
+    normalizeId(extra.userId);
+  if (!userId) return;
+  emitUserScoped("support:thread", { thread, ...extra }, userId);
+};
+
 exports.spotUpsert = (position, extra = {}) => {
   const userId = normalizeId(position.userId) || normalizeId(extra.userId);
   if (!userId) return;

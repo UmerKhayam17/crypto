@@ -13,13 +13,15 @@ async function seedAdmin() {
 
   const existing = await User.findOne({ email });
   if (existing) {
-    if (existing.role !== "admin") {
-      existing.role = "admin";
-      await existing.save();
-      console.log(`Promoted existing user ${email} to admin`);
-    } else {
+    if (existing.role === "admin") {
       console.log(`Admin user already exists: ${email}`);
+      return;
     }
+    // Never silently promote an existing non-admin account.
+    // Only create admin when the email is free.
+    console.warn(
+      `Refusing to promote existing ${existing.role} account ${email} to admin. Use a unique ADMIN_EMAIL.`
+    );
     return;
   }
 

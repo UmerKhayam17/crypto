@@ -17,6 +17,7 @@ const withdrawalRoutes = require("./routes/withdrawalRoutes");
 const supportRoutes = require("./routes/supportRoutes");
 const vipRoutes = require("./routes/vipRoutes");
 const spotRoutes = require("./routes/spotRoutes");
+const { serveMedia } = require("./controller/mediaController");
 const { settleExpiredTrades } = require("./controller/tradeController");
 const { init: initRealtime } = require("./ws/realtime");
 
@@ -24,14 +25,44 @@ dotenv.config();
 
 const app = express();
 
+function parseOrigins() {
+  const raw = process.env.CLIENT_URL || "";
+  const list = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return list.length ? list : true;
+}
+
+const allowedOrigins = parseOrigins();
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL,
+    origin(origin, cb) {
+      if (!origin) return cb(null, true);
+      if (allowedOrigins === true) return cb(null, true);
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+      // Allow same-LAN private origins when CLIENT_URL includes a LAN host pattern
+      try {
+        const u = new URL(origin);
+        const isPrivate =
+          /^192\.168\./.test(u.hostname) ||
+          /^10\./.test(u.hostname) ||
+          /^172\.(1[6-9]|2\d|3[0-1])\./.test(u.hostname) ||
+          u.hostname === "localhost" ||
+          u.hostname === "127.0.0.1";
+        if (isPrivate && process.env.ALLOW_LAN_CORS !== "false") {
+          return cb(null, true);
+        }
+      } catch {
+        // fall through
+      }
+      return cb(new Error(`CORS blocked for origin ${origin}`));
+    },
     credentials: true,
   })
 );
 app.use(express.json({ limit: "10mb" }));
-app.use("/uploads", cors(), express.static(path.join(__dirname, "uploads")));
 app.use(morgan("dev"));
 
 app.get("/", (_req, res) => {
@@ -41,6 +72,8 @@ app.get("/", (_req, res) => {
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, status: "healthy" });
 });
+
+app.get("/api/media/:filename", serveMedia);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/staff", staffRoutes);

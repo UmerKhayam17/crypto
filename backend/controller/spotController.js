@@ -2,6 +2,8 @@ const SpotPosition = require("../model/SpotPosition");
 const User = require("../model/User");
 const Settings = require("../model/Settings");
 const formatSpotPosition = require("../utils/formatSpotPosition");
+const { fetchMarkPrice, isAllowedTradeSymbol } = require("../utils/markPrice");
+const { debitWallet, creditWallet } = require("../utils/wallet");
 const notify = require("../utils/realtimeNotify");
 
 async function getSpotFeePercent() {
@@ -25,7 +27,6 @@ function calcOpen(entryPrice, quantity, feePercent) {
   return { notional, entryFee, cost };
 }
 
-/** Long close: sold higher than buy → profit */
 function calcCloseLong(entryPrice, exitPrice, quantity, entryFee, feePercent) {
   const exitNotional = exitPrice * quantity;
   const exitFee = exitNotional * (feePercent / 100);
@@ -33,18 +34,16 @@ function calcCloseLong(entryPrice, exitPrice, quantity, entryFee, feePercent) {
   const openCost = entryPrice * quantity + entryFee;
   const pnl = sellProceeds - openCost;
   const pnlPercent = entryPrice > 0 ? ((exitPrice - entryPrice) / entryPrice) * 100 : 0;
-  const credit = sellProceeds;
-  return { exitFee, proceeds: credit, pnl, pnlPercent };
+  return { exitFee, proceeds: Math.max(0, sellProceeds), pnl, pnlPercent };
 }
 
-/** Short close: bought back lower than sell → profit */
 function calcCloseShort(entryPrice, exitPrice, quantity, entryFee, feePercent) {
   const exitNotional = exitPrice * quantity;
   const exitFee = exitNotional * (feePercent / 100);
   const pnl = (entryPrice - exitPrice) * quantity - entryFee - exitFee;
   const pnlPercent = entryPrice > 0 ? ((entryPrice - exitPrice) / entryPrice) * 100 : 0;
   const openCost = entryPrice * quantity + entryFee;
-  const credit = openCost + pnl;
+  const credit = Math.max(0, openCost + pnl);
   return { exitFee, proceeds: credit, pnl, pnlPercent };
 }
 
@@ -61,53 +60,62 @@ exports.openSpot = async (req, res) => {
       return res.status(400).json({ ok: false, msg: "Complete KYC verification to start trading" });
     }
 
-    const { symbol, quantity, entryPrice, side } = req.body;
+    const { symbol, quantity, side } = req.body;
     const qty = Number(quantity);
-    const price = Number(entryPrice ?? req.body.buyPrice);
     const openSide = side === "sell" ? "sell" : "buy";
 
     if (!symbol || typeof symbol !== "string") {
       return res.status(400).json({ ok: false, msg: "Symbol is required" });
     }
+    if (!isAllowedTradeSymbol(symbol)) {
+      return res.status(400).json({ ok: false, msg: "Unsupported market symbol" });
+    }
     if (!Number.isFinite(qty) || qty <= 0) {
       return res.status(400).json({ ok: false, msg: "Enter a quantity greater than 0" });
     }
-    if (!Number.isFinite(price) || price <= 0) {
-      return res.status(400).json({ ok: false, msg: "Invalid entry price" });
+
+    let price;
+    try {
+      price = await fetchMarkPrice(symbol, req.body.entryPrice ?? req.body.buyPrice);
+    } catch {
+      return res.status(502).json({ ok: false, msg: "Could not fetch live market price" });
     }
 
     const feePercent = await getSpotFeePercent();
     const { entryFee, cost } = calcOpen(price, qty, feePercent);
 
-    user.wallet = user.wallet || { cashUSDT: 0 };
-    if (cost > user.wallet.cashUSDT) {
+    const debited = await debitWallet(user._id, cost);
+    if (!debited) {
       return res.status(400).json({
         ok: false,
-        msg: `Insufficient balance (need $${cost.toFixed(2)}, have $${user.wallet.cashUSDT.toFixed(2)})`,
+        msg: `Insufficient balance (need $${cost.toFixed(2)}, have $${(user.wallet?.cashUSDT ?? 0).toFixed(2)})`,
       });
     }
 
-    user.wallet.cashUSDT -= cost;
-    await user.save();
-
-    const position = await SpotPosition.create({
-      user: user._id,
-      symbol,
-      side: openSide,
-      quantity: qty,
-      entryPrice: price,
-      entryFee,
-      cost,
-      openedAt: Date.now(),
-      status: "open",
-      ...(openSide === "buy"
-        ? { buyPrice: price, buyFee: entryFee }
-        : { sellPrice: price, sellFee: entryFee }),
-    });
+    let position;
+    try {
+      position = await SpotPosition.create({
+        user: user._id,
+        symbol,
+        side: openSide,
+        quantity: qty,
+        entryPrice: price,
+        entryFee,
+        cost,
+        openedAt: Date.now(),
+        status: "open",
+        ...(openSide === "buy"
+          ? { buyPrice: price, buyFee: entryFee }
+          : { sellPrice: price, sellFee: entryFee }),
+      });
+    } catch (err) {
+      await creditWallet(user._id, cost);
+      throw err;
+    }
 
     const formatted = formatSpotPosition(position);
     notify.spotUpsert(formatted, {
-      wallet: { cashUSDT: user.wallet.cashUSDT },
+      wallet: { cashUSDT: debited.wallet.cashUSDT },
       userId: user._id.toString(),
     });
 
@@ -116,7 +124,7 @@ exports.openSpot = async (req, res) => {
       ok: true,
       msg: `${label} ${qty} ${symbol} @ $${price}`,
       position: formatted,
-      wallet: { cashUSDT: user.wallet.cashUSDT },
+      wallet: { cashUSDT: debited.wallet.cashUSDT },
       spotFeePercent: feePercent,
     });
   } catch (err) {
@@ -132,58 +140,69 @@ exports.closeSpot = async (req, res) => {
       return res.status(403).json({ ok: false, msg: "Only users can close their spot positions" });
     }
 
-    const position = await SpotPosition.findOne({ _id: req.params.id, user: actor._id });
-    if (!position) return res.status(404).json({ ok: false, msg: "Position not found" });
-    if (position.status !== "open") {
+    const claimed = await SpotPosition.findOneAndUpdate(
+      { _id: req.params.id, user: actor._id, status: "open" },
+      { $set: { status: "closing" } },
+      { new: true }
+    );
+    if (!claimed) {
+      const existing = await SpotPosition.findOne({ _id: req.params.id, user: actor._id });
+      if (!existing) return res.status(404).json({ ok: false, msg: "Position not found" });
       return res.status(400).json({ ok: false, msg: "Position is already closed" });
     }
 
-    const exitPrice = Number(req.body.exitPrice ?? req.body.sellPrice ?? req.body.buyPrice);
-    if (!Number.isFinite(exitPrice) || exitPrice <= 0) {
-      return res.status(400).json({ ok: false, msg: "Invalid exit price" });
+    let exitPrice;
+    try {
+      exitPrice = await fetchMarkPrice(
+        claimed.symbol,
+        req.body.exitPrice ?? req.body.sellPrice ?? req.body.buyPrice
+      );
+    } catch {
+      await SpotPosition.findByIdAndUpdate(claimed._id, { status: "open" });
+      return res.status(502).json({ ok: false, msg: "Could not fetch live market price" });
     }
 
-    const side = position.side === "sell" ? "sell" : "buy";
+    const side = claimed.side === "sell" ? "sell" : "buy";
     const entryPrice =
-      position.entryPrice ?? (side === "buy" ? position.buyPrice : position.sellPrice);
+      claimed.entryPrice ?? (side === "buy" ? claimed.buyPrice : claimed.sellPrice);
     const entryFee =
-      position.entryFee ?? (side === "buy" ? position.buyFee : position.sellFee) ?? 0;
+      claimed.entryFee ?? (side === "buy" ? claimed.buyFee : claimed.sellFee) ?? 0;
 
     const feePercent = await getSpotFeePercent();
     const settled =
       side === "buy"
-        ? calcCloseLong(entryPrice, exitPrice, position.quantity, entryFee, feePercent)
-        : calcCloseShort(entryPrice, exitPrice, position.quantity, entryFee, feePercent);
+        ? calcCloseLong(entryPrice, exitPrice, claimed.quantity, entryFee, feePercent)
+        : calcCloseShort(entryPrice, exitPrice, claimed.quantity, entryFee, feePercent);
 
-    const user = await User.findById(actor._id);
-    if (!user) return res.status(404).json({ ok: false, msg: "User not found" });
-
-    user.wallet = user.wallet || { cashUSDT: 0 };
-    user.wallet.cashUSDT = (user.wallet.cashUSDT || 0) + settled.proceeds;
-    await user.save();
-
-    position.status = "closed";
-    position.entryPrice = entryPrice;
-    position.entryFee = entryFee;
-    position.exitPrice = exitPrice;
-    position.exitFee = settled.exitFee;
-    position.proceeds = settled.proceeds;
-    position.pnl = settled.pnl;
-    position.pnlPercent = settled.pnlPercent;
-    position.closedAt = Date.now();
-    if (side === "buy") {
-      position.sellPrice = exitPrice;
-      position.sellFee = settled.exitFee;
-    } else {
-      position.buyPrice = exitPrice;
-      position.buyFee = settled.exitFee;
+    const updatedUser = await creditWallet(actor._id, settled.proceeds);
+    if (!updatedUser) {
+      await SpotPosition.findByIdAndUpdate(claimed._id, { status: "open" });
+      return res.status(404).json({ ok: false, msg: "User not found" });
     }
-    await position.save();
 
-    const formatted = formatSpotPosition(position);
+    claimed.status = "closed";
+    claimed.entryPrice = entryPrice;
+    claimed.entryFee = entryFee;
+    claimed.exitPrice = exitPrice;
+    claimed.exitFee = settled.exitFee;
+    claimed.proceeds = settled.proceeds;
+    claimed.pnl = settled.pnl;
+    claimed.pnlPercent = settled.pnlPercent;
+    claimed.closedAt = Date.now();
+    if (side === "buy") {
+      claimed.sellPrice = exitPrice;
+      claimed.sellFee = settled.exitFee;
+    } else {
+      claimed.buyPrice = exitPrice;
+      claimed.buyFee = settled.exitFee;
+    }
+    await claimed.save();
+
+    const cash = updatedUser.wallet?.cashUSDT ?? 0;
+    const formatted = formatSpotPosition(claimed);
     notify.spotUpsert(formatted, {
-      wallet: { cashUSDT: user.wallet.cashUSDT },
-      userId: user._id.toString(),
+      wallet: { cashUSDT: cash },
+      userId: actor._id.toString(),
     });
 
     const action = side === "buy" ? "Sold" : "Bought back";
@@ -194,7 +213,7 @@ exports.closeSpot = async (req, res) => {
           ? `${action} — profit +$${settled.pnl.toFixed(2)} (${settled.pnlPercent.toFixed(2)}%)`
           : `${action} — loss $${Math.abs(settled.pnl).toFixed(2)} (${settled.pnlPercent.toFixed(2)}%)`,
       position: formatted,
-      wallet: { cashUSDT: user.wallet.cashUSDT },
+      wallet: { cashUSDT: cash },
     });
   } catch (err) {
     console.error("Close spot error:", err);

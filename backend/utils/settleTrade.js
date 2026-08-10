@@ -1,48 +1,19 @@
-const CRYPTO_SYMBOLS = new Set(
-  [
-    "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT", "DOGE/USDT",
-    "AVAX/USDT", "LINK/USDT", "MATIC/USDT", "DOT/USDT", "TRX/USDT", "TON/USDT", "SHIB/USDT",
-    "LTC/USDT", "BCH/USDT", "UNI/USDT", "ATOM/USDT", "NEAR/USDT", "ICP/USDT", "APT/USDT",
-    "FIL/USDT", "ARB/USDT", "OP/USDT", "INJ/USDT", "SUI/USDT", "SEI/USDT", "TIA/USDT",
-    "RUNE/USDT", "AAVE/USDT", "MKR/USDT", "SNX/USDT", "CRV/USDT", "LDO/USDT", "GRT/USDT",
-    "SAND/USDT", "MANA/USDT", "AXS/USDT", "GALA/USDT", "CHZ/USDT", "FLOW/USDT", "ALGO/USDT",
-    "XLM/USDT", "VET/USDT", "HBAR/USDT", "EOS/USDT", "XTZ/USDT", "EGLD/USDT", "KAVA/USDT",
-    "MINA/USDT", "ROSE/USDT", "IMX/USDT", "RNDR/USDT", "FTM/USDT", "KSM/USDT", "ZIL/USDT",
-    "BAT/USDT", "ZRX/USDT", "COMP/USDT", "YFI/USDT", "SUSHI/USDT", "1INCH/USDT", "DYDX/USDT",
-    "ENJ/USDT", "JASMY/USDT", "WLD/USDT", "ORDI/USDT", "BLUR/USDT", "PEPE/USDT",
-  ]
-);
-
-function toBinanceSymbol(symbol) {
-  if (!CRYPTO_SYMBOLS.has(symbol)) return null;
-  return symbol.replace("/", "");
-}
-
-async function fetchClosePrice(symbol, entryPrice) {
-  const binance = toBinanceSymbol(symbol);
-  if (binance) {
-    try {
-      const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${binance}`);
-      if (res.ok) {
-        const data = await res.json();
-        const price = parseFloat(data.price);
-        if (Number.isFinite(price)) return price;
-      }
-    } catch {
-      // fall through
-    }
-  }
-  const drift = (Math.random() - 0.5) * 0.002;
-  return Number((entryPrice * (1 + drift)).toFixed(8));
-}
+const { fetchMarkPrice } = require("./markPrice");
 
 function pickPercents(trade, user, globalPayoutPercent) {
-  const profitPercent =
+  let profitPercent =
     trade.customProfitPercent ??
     user.profitPercent ??
     globalPayoutPercent ??
     85;
-  const lossPercent = trade.customLossPercent ?? user.lossPercent ?? 100;
+  let lossPercent = trade.customLossPercent ?? user.lossPercent ?? 100;
+
+  profitPercent = Number(profitPercent);
+  lossPercent = Number(lossPercent);
+  if (!Number.isFinite(profitPercent)) profitPercent = 85;
+  if (!Number.isFinite(lossPercent)) lossPercent = 100;
+  profitPercent = Math.min(500, Math.max(0, profitPercent));
+  lossPercent = Math.min(100, Math.max(0, lossPercent));
   return { profitPercent, lossPercent };
 }
 
@@ -71,14 +42,12 @@ function decideWin(trade, user, closePrice) {
   }
   const moved = closePrice - trade.entryPrice;
   const won = trade.direction === "up" ? moved > 0 : moved < 0;
-  return { won, source: "random" };
+  return { won, source: "market" };
 }
 
-async function settleTradeDoc(trade, user, globalPayoutPercent, closePriceOverride) {
-  const closePrice =
-    closePriceOverride != null
-      ? closePriceOverride
-      : await fetchClosePrice(trade.symbol, trade.entryPrice);
+/** Always resolves close via server mark price (client override ignored). */
+async function settleTradeDoc(trade, user, globalPayoutPercent) {
+  const closePrice = await fetchMarkPrice(trade.symbol, trade.entryPrice);
   const { won, source } = decideWin(trade, user, closePrice);
   const { profitPercent, lossPercent } = pickPercents(trade, user, globalPayoutPercent);
   const { payout, pnl } = computeResult({ won, stake: trade.stake, profitPercent, lossPercent });
@@ -90,21 +59,33 @@ async function settleTradeDoc(trade, user, globalPayoutPercent, closePriceOverri
   trade.resolvedAt = Date.now();
   trade.outcomeSource = source;
 
-  return { payout, pnl, won };
+  return { payout, pnl, won, closePrice };
 }
 
 function settleTradeForced(trade, user, globalPayoutPercent, outcome, profitPercent, lossPercent) {
   const won = outcome === "profit";
+  const clampedProfit =
+    profitPercent != null ? Math.min(500, Math.max(0, Number(profitPercent))) : undefined;
+  const clampedLoss =
+    lossPercent != null ? Math.min(100, Math.max(0, Number(lossPercent))) : undefined;
+
+  if (clampedProfit != null && !Number.isFinite(clampedProfit)) {
+    throw new Error("Invalid profit percent");
+  }
+  if (clampedLoss != null && !Number.isFinite(clampedLoss)) {
+    throw new Error("Invalid loss percent");
+  }
+
   const pct = pickPercents(
     {
-      customProfitPercent: profitPercent ?? trade.customProfitPercent,
-      customLossPercent: lossPercent ?? trade.customLossPercent,
+      customProfitPercent: clampedProfit ?? trade.customProfitPercent,
+      customLossPercent: clampedLoss ?? trade.customLossPercent,
     },
     user,
     globalPayoutPercent
   );
-  if (profitPercent != null) trade.customProfitPercent = profitPercent;
-  if (lossPercent != null) trade.customLossPercent = lossPercent;
+  if (clampedProfit != null) trade.customProfitPercent = clampedProfit;
+  if (clampedLoss != null) trade.customLossPercent = clampedLoss;
 
   const { payout, pnl } = computeResult({
     won,
@@ -127,7 +108,7 @@ function settleTradeForced(trade, user, globalPayoutPercent, outcome, profitPerc
 module.exports = {
   settleTradeDoc,
   settleTradeForced,
-  fetchClosePrice,
+  fetchClosePrice: fetchMarkPrice,
   pickPercents,
   computeResult,
 };

@@ -8,32 +8,41 @@ const formatSupportMessage = require("../utils/formatSupportMessage");
 async function getMyOpenThread(userId) {
   const id = userId?.toString?.();
   if (!id) return null;
-  const thread = await SupportThread.findOne({ user: id, status: "open" }).sort({ updatedAt: -1 });
-  return thread;
+  return SupportThread.findOne({ user: id, status: "open" }).sort({ updatedAt: -1 });
 }
 
 async function getOrCreateThread(userId) {
   const existing = await getMyOpenThread(userId);
   if (existing) return existing;
-  return await SupportThread.create({ user: userId, status: "open" });
+  return SupportThread.create({ user: userId, status: "open" });
 }
 
 async function canAccessThread(actor, threadId) {
-  const thread = await SupportThread.findById(threadId).populate("user", "fname lname name email assignedStaff");
+  const thread = await SupportThread.findById(threadId).populate(
+    "user",
+    "fname lname name email assignedStaff"
+  );
   if (!thread) return { ok: false, msg: "Thread not found", thread: null };
+
   if (actor.role === "admin") return { ok: true, thread };
+
   if (actor.role === "staff") {
     const assignedStaffId = thread.user?.assignedStaff?.toString?.() || null;
-    if (!assignedStaffId) return { ok: false, msg: "Not authorized for this thread", thread: null };
-    if (assignedStaffId !== actor._id.toString()) return { ok: false, msg: "Not authorized for this thread", thread: null };
+    // Staff can access their assigned users and unassigned users (claim on reply)
+    if (assignedStaffId && assignedStaffId !== actor._id.toString()) {
+      return { ok: false, msg: "Not authorized for this thread", thread: null };
+    }
     return { ok: true, thread };
   }
-  // user
+
   if (actor.role === "user") {
-    if (!thread.user?._id) return { ok: false, msg: "Not authorized for this thread", thread: null };
-    if (thread.user._id.toString() !== actor._id.toString()) return { ok: false, msg: "Not authorized for this thread", thread: null };
+    const ownerId = thread.user?._id?.toString?.() || thread.user?.toString?.();
+    if (!ownerId || ownerId !== actor._id.toString()) {
+      return { ok: false, msg: "Not authorized for this thread", thread: null };
+    }
     return { ok: true, thread };
   }
+
   return { ok: false, msg: "Not authorized", thread: null };
 }
 
@@ -45,6 +54,18 @@ async function threadWithLastMessage(thread) {
   });
   const formattedLast = lastMessage ? formatSupportMessage(lastMessage) : undefined;
   return { thread: formattedThread, lastMessage: formattedLast };
+}
+
+async function maybeClaimUser(actor, thread) {
+  if (actor.role !== "staff") return;
+  const userId = thread.user?._id || thread.user;
+  if (!userId) return;
+  const owner = await User.findById(userId);
+  if (!owner || owner.role !== "user") return;
+  if (owner.assignedStaff) return;
+  owner.assignedStaff = actor._id;
+  await owner.save();
+  thread.user = owner;
 }
 
 exports.listMyThreads = async (req, res) => {
@@ -66,7 +87,10 @@ exports.listMyThreads = async (req, res) => {
       enriched.push(await threadWithLastMessage(t));
     }
 
-    return res.json({ ok: true, threads: enriched.map((x) => ({ ...x.thread, lastMessage: x.lastMessage })) });
+    return res.json({
+      ok: true,
+      threads: enriched.map((x) => ({ ...x.thread, lastMessage: x.lastMessage })),
+    });
   } catch (err) {
     console.error("listMyThreads error:", err);
     return res.status(500).json({ ok: false, msg: "Could not load support threads" });
@@ -81,16 +105,24 @@ exports.listThreads = async (req, res) => {
 
     let query = {};
     if (req.user.role === "staff") {
-      const assignedUsers = await User.find({ role: "user", assignedStaff: req.user._id }).select("_id");
+      const assignedUsers = await User.find({
+        role: "user",
+        $or: [{ assignedStaff: req.user._id }, { assignedStaff: null }, { assignedStaff: { $exists: false } }],
+      }).select("_id");
       const ids = assignedUsers.map((u) => u._id);
-      if (ids.length === 0) return res.json({ ok: true, threads: [] });
+      if (ids.length === 0) return res.json({ ok: true, threads: [], openCount: 0 });
       query = { user: { $in: ids } };
+    }
+
+    const statusFilter = req.query.status;
+    if (statusFilter === "open" || statusFilter === "closed") {
+      query.status = statusFilter;
     }
 
     const threads = await SupportThread.find(query)
       .populate("user", "fname lname name email assignedStaff")
       .sort({ updatedAt: -1 })
-      .limit(50);
+      .limit(100);
 
     const enriched = [];
     for (const t of threads) {
@@ -101,7 +133,9 @@ exports.listThreads = async (req, res) => {
       });
     }
 
-    return res.json({ ok: true, threads: enriched });
+    const openCount = enriched.filter((t) => t.status === "open").length;
+
+    return res.json({ ok: true, threads: enriched, openCount });
   } catch (err) {
     console.error("listThreads error:", err);
     return res.status(500).json({ ok: false, msg: "Could not load support threads" });
@@ -151,13 +185,17 @@ exports.sendMessage = async (req, res) => {
       const access = await canAccessThread(actor, threadId);
       if (!access.ok) return res.status(403).json({ ok: false, msg: access.msg });
       thread = access.thread;
+      await maybeClaimUser(actor, thread);
     }
 
     if (!thread) return res.status(404).json({ ok: false, msg: "Thread not found" });
 
-    // Ensure thread stays open when replying
-    if (thread.status !== "open") thread.status = "open";
-    await thread.save().catch(() => {});
+    // Re-open closed threads when anyone sends a new message
+    if (thread.status !== "open") {
+      thread.status = "open";
+    }
+    thread.updatedAt = new Date();
+    await thread.save();
 
     const senderRole = actor.role === "user" ? "user" : actor.role === "admin" ? "admin" : "staff";
     const message = await SupportMessage.create({
@@ -167,11 +205,18 @@ exports.sendMessage = async (req, res) => {
       content: trimmed,
     });
 
-    const formattedThreadDoc = await SupportThread.findById(thread._id).populate("user", "fname lname name email assignedStaff");
+    const formattedThreadDoc = await SupportThread.findById(thread._id).populate(
+      "user",
+      "fname lname name email assignedStaff"
+    );
     const formattedThread = formatSupportThread(formattedThreadDoc);
     const formattedMessage = formatSupportMessage(message);
+    const userId = (formattedThreadDoc.user?._id || thread.user).toString();
 
-    notify.supportMessageUpsert(formattedThread, formattedMessage, { userId: thread.user.toString(), threadId: formattedThread.id });
+    notify.supportMessageUpsert(formattedThread, formattedMessage, {
+      userId,
+      threadId: formattedThread.id,
+    });
 
     return res.json({
       ok: true,
@@ -185,3 +230,48 @@ exports.sendMessage = async (req, res) => {
   }
 };
 
+exports.setThreadStatus = async (req, res) => {
+  try {
+    if (req.user.role !== "admin" && req.user.role !== "staff") {
+      return res.status(403).json({ ok: false, msg: "Admin/staff access required" });
+    }
+
+    const status = req.body?.status;
+    if (!["open", "closed"].includes(status)) {
+      return res.status(400).json({ ok: false, msg: "Status must be open or closed" });
+    }
+
+    const access = await canAccessThread(req.user, req.params.id);
+    if (!access.ok) return res.status(403).json({ ok: false, msg: access.msg });
+
+    const thread = access.thread;
+    thread.status = status;
+    await thread.save();
+
+    if (req.user.role === "staff") {
+      await maybeClaimUser(req.user, thread);
+    }
+
+    const populated = await SupportThread.findById(thread._id).populate(
+      "user",
+      "fname lname name email assignedStaff"
+    );
+    const lastMessage = await SupportMessage.findOne({ thread: thread._id }).sort({ createdAt: -1 });
+    const formatted = {
+      ...formatSupportThread(populated),
+      lastMessage: lastMessage ? formatSupportMessage(lastMessage) : undefined,
+    };
+
+    const userId = (populated.user?._id || thread.user).toString();
+    notify.supportThreadUpdated(formatted, { userId, threadId: formatted.id });
+
+    return res.json({
+      ok: true,
+      msg: status === "closed" ? "Ticket closed" : "Ticket reopened",
+      thread: formatted,
+    });
+  } catch (err) {
+    console.error("setThreadStatus error:", err);
+    return res.status(500).json({ ok: false, msg: "Could not update ticket" });
+  }
+};

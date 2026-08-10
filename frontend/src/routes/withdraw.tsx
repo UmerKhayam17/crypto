@@ -34,7 +34,8 @@ function WithdrawContent() {
     () => myWithdrawals.filter((w) => w.status === "pending").reduce((s, w) => s + w.amount, 0),
     [myWithdrawals]
   );
-  const available = wallet.cashUSDT - pendingTotal;
+  // Funds are reserved (debited) when a withdrawal is submitted.
+  const available = wallet.cashUSDT;
 
   if (!user) return null;
 

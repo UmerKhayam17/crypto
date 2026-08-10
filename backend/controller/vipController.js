@@ -123,20 +123,24 @@ exports.claimVipReward = async (req, res) => {
       claimedAt: Date.now(),
     });
 
-    user.wallet = user.wallet || { cashUSDT: 0 };
-    user.wallet.cashUSDT = (user.wallet.cashUSDT || 0) + tier.reward;
-    await user.save();
+    const { creditWallet } = require("../utils/wallet");
+    const updated = await creditWallet(user._id, tier.reward);
+    if (!updated) {
+      await VipClaim.deleteOne({ _id: claim._id });
+      return res.status(404).json({ ok: false, msg: "User not found" });
+    }
+    const cash = updated.wallet?.cashUSDT ?? 0;
 
     const allClaims = await VipClaim.find({ user: user._id }).sort({ level: 1 });
     const tiers = buildStatus(totalRecharge, allClaims);
 
-    notify.userUpdated(require("../utils/formatUser")(user));
+    notify.userUpdated(require("../utils/formatUser")(updated));
 
     return res.json({
       ok: true,
       msg: `${tier.name} reward claimed — +$${tier.reward.toFixed(2)} USDT`,
       claim: formatVipClaim(claim),
-      wallet: { cashUSDT: user.wallet.cashUSDT },
+      wallet: { cashUSDT: cash },
       totalRecharge,
       currentVipLevel: tier.level,
       currentVipName: tier.name,

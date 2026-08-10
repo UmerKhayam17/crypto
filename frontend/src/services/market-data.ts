@@ -184,17 +184,19 @@ export type Interval = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
 export const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
 
 export async function fetchKlines(binanceSymbol: string, interval: Interval, limit = 120): Promise<Candle[]> {
-  const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${limit}`;
+  const capped = Math.min(1000, Math.max(1, Math.floor(limit)));
+  const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${capped}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Klines failed: ${res.status}`);
   const raw: unknown[][] = await res.json();
+  if (!Array.isArray(raw) || raw.length === 0) throw new Error("No candle data returned");
   return raw.map((k) => ({
-    t: k[0] as number,
-    o: parseFloat(k[1] as string),
-    h: parseFloat(k[2] as string),
-    l: parseFloat(k[3] as string),
-    c: parseFloat(k[4] as string),
-    v: parseFloat(k[5] as string),
+    t: Number(k[0]),
+    o: parseFloat(String(k[1])),
+    h: parseFloat(String(k[2])),
+    l: parseFloat(String(k[3])),
+    c: parseFloat(String(k[4])),
+    v: parseFloat(String(k[5])),
   }));
 }
 

@@ -1,12 +1,8 @@
 const Withdrawal = require("../model/Withdrawal");
 const User = require("../model/User");
 const formatWithdrawal = require("../utils/formatWithdrawal");
+const { debitWallet, creditWallet } = require("../utils/wallet");
 const notify = require("../utils/realtimeNotify");
-
-async function pendingWithdrawalTotal(userId) {
-  const rows = await Withdrawal.find({ user: userId, status: "pending" });
-  return rows.reduce((sum, w) => sum + w.amount, 0);
-}
 
 async function canAccessUser(actor, userId) {
   if (actor.role === "admin") return true;
@@ -52,37 +48,44 @@ exports.createWithdrawal = async (req, res) => {
       if (!accountNumber) return res.status(400).json({ ok: false, msg: "Account number is required" });
     }
 
-    const balance = user.wallet?.cashUSDT ?? 0;
-    const reserved = await pendingWithdrawalTotal(user._id);
-    const available = balance - reserved;
-    if (amount > available) {
+    const debited = await debitWallet(user._id, amount);
+    if (!debited) {
       return res.status(400).json({
         ok: false,
-        msg: reserved > 0
-          ? `Insufficient available balance ($${available.toFixed(2)} after pending withdrawals)`
-          : `Insufficient balance (have $${balance.toFixed(2)})`,
+        msg: `Insufficient balance (have $${(user.wallet?.cashUSDT ?? 0).toFixed(2)})`,
       });
     }
 
-    const withdrawal = await Withdrawal.create({
-      user: user._id,
-      amount,
-      method,
-      trc20Address: method === "trc20" ? trc20Address : "",
-      bankName: method === "bank" ? bankName : "",
-      accountNumber: method === "bank" ? accountNumber : "",
-      accountName: method === "bank" ? accountName : "",
-      note: req.body.note?.trim() || "",
-      status: "pending",
-    });
+    let withdrawal;
+    try {
+      withdrawal = await Withdrawal.create({
+        user: user._id,
+        amount,
+        method,
+        trc20Address: method === "trc20" ? trc20Address : "",
+        bankName: method === "bank" ? bankName : "",
+        accountNumber: method === "bank" ? accountNumber : "",
+        accountName: method === "bank" ? accountName : "",
+        note: req.body.note?.trim() || "",
+        status: "pending",
+      });
+    } catch (err) {
+      await creditWallet(user._id, amount);
+      throw err;
+    }
 
+    const cash = debited.wallet?.cashUSDT ?? 0;
     const formatted = formatWithdrawal(withdrawal);
-    notify.withdrawalUpsert(formatted);
+    notify.withdrawalUpsert(formatted, {
+      userWallet: { cashUSDT: cash },
+      userId: user._id.toString(),
+    });
 
     return res.status(201).json({
       ok: true,
       msg: "Withdrawal request submitted. Awaiting admin verification.",
       withdrawal: formatted,
+      wallet: { cashUSDT: cash },
     });
   } catch (err) {
     console.error("Create withdrawal error:", err);
@@ -136,35 +139,37 @@ exports.approveWithdrawal = async (req, res) => {
     const allowed = await canAccessUser(req.user, withdrawal.user);
     if (!allowed) return res.status(403).json({ ok: false, msg: "Not authorized for this withdrawal" });
 
-    const owner = await User.findById(withdrawal.user);
-    if (!owner) return res.status(404).json({ ok: false, msg: "User not found" });
-
-    const balance = owner.wallet?.cashUSDT ?? 0;
-    if (withdrawal.amount > balance) {
-      return res.status(400).json({ ok: false, msg: "User no longer has sufficient balance" });
+    const processedBy = req.user.fname ? `${req.user.fname} ${req.user.lname}` : "Admin";
+    const claimed = await Withdrawal.findOneAndUpdate(
+      { _id: withdrawal._id, status: "pending" },
+      {
+        $set: {
+          status: "approved",
+          processedAt: Date.now(),
+          processedBy,
+        },
+      },
+      { new: true }
+    );
+    if (!claimed) {
+      return res.status(400).json({ ok: false, msg: "Withdrawal is not pending" });
     }
 
-    owner.wallet = owner.wallet || { cashUSDT: 0 };
-    owner.wallet.cashUSDT = balance - withdrawal.amount;
-    await owner.save();
-
-    withdrawal.status = "approved";
-    withdrawal.processedAt = Date.now();
-    withdrawal.processedBy = req.user.fname ? `${req.user.fname} ${req.user.lname}` : "Admin";
-    await withdrawal.save();
-
-    const formatted = formatWithdrawal(withdrawal);
+    // Funds were already reserved (debited) on create
+    const owner = await User.findById(claimed.user);
+    const cash = owner?.wallet?.cashUSDT ?? 0;
+    const formatted = formatWithdrawal(claimed);
     notify.withdrawalUpsert(formatted, {
-      userWallet: { cashUSDT: owner.wallet.cashUSDT },
-      userId: owner._id.toString(),
+      userWallet: { cashUSDT: cash },
+      userId: claimed.user.toString(),
     });
 
     return res.json({
       ok: true,
       msg: "Withdrawal approved",
       withdrawal: formatted,
-      userWallet: { cashUSDT: owner.wallet.cashUSDT },
-      userId: owner._id.toString(),
+      userWallet: { cashUSDT: cash },
+      userId: claimed.user.toString(),
     });
   } catch (err) {
     console.error("Approve withdrawal error:", err);
@@ -183,16 +188,38 @@ exports.rejectWithdrawal = async (req, res) => {
     const allowed = await canAccessUser(req.user, withdrawal.user);
     if (!allowed) return res.status(403).json({ ok: false, msg: "Not authorized for this withdrawal" });
 
-    withdrawal.status = "rejected";
-    withdrawal.rejectReason = req.body.reason?.trim() || "";
-    withdrawal.processedAt = Date.now();
-    withdrawal.processedBy = req.user.fname ? `${req.user.fname} ${req.user.lname}` : "Admin";
-    await withdrawal.save();
+    const processedBy = req.user.fname ? `${req.user.fname} ${req.user.lname}` : "Admin";
+    const claimed = await Withdrawal.findOneAndUpdate(
+      { _id: withdrawal._id, status: "pending" },
+      {
+        $set: {
+          status: "rejected",
+          rejectReason: req.body.reason?.trim() || "",
+          processedAt: Date.now(),
+          processedBy,
+        },
+      },
+      { new: true }
+    );
+    if (!claimed) {
+      return res.status(400).json({ ok: false, msg: "Withdrawal is not pending" });
+    }
 
-    const formatted = formatWithdrawal(withdrawal);
-    notify.withdrawalUpsert(formatted);
+    const owner = await creditWallet(claimed.user, claimed.amount);
+    const cash = owner?.wallet?.cashUSDT ?? 0;
+    const formatted = formatWithdrawal(claimed);
+    notify.withdrawalUpsert(formatted, {
+      userWallet: { cashUSDT: cash },
+      userId: claimed.user.toString(),
+    });
 
-    return res.json({ ok: true, msg: "Withdrawal rejected", withdrawal: formatted });
+    return res.json({
+      ok: true,
+      msg: "Withdrawal rejected",
+      withdrawal: formatted,
+      userWallet: { cashUSDT: cash },
+      userId: claimed.user.toString(),
+    });
   } catch (err) {
     console.error("Reject withdrawal error:", err);
     return res.status(500).json({ ok: false, msg: "Could not reject withdrawal" });
@@ -201,16 +228,26 @@ exports.rejectWithdrawal = async (req, res) => {
 
 exports.cancelWithdrawal = async (req, res) => {
   try {
-    const withdrawal = await Withdrawal.findOne({ _id: req.params.id, user: req.user._id });
-    if (!withdrawal) return res.status(404).json({ ok: false, msg: "Withdrawal not found" });
-    if (withdrawal.status !== "pending") {
+    const claimed = await Withdrawal.findOneAndDelete({
+      _id: req.params.id,
+      user: req.user._id,
+      status: "pending",
+    });
+    if (!claimed) {
+      const existing = await Withdrawal.findOne({ _id: req.params.id, user: req.user._id });
+      if (!existing) return res.status(404).json({ ok: false, msg: "Withdrawal not found" });
       return res.status(400).json({ ok: false, msg: "Only pending withdrawals can be cancelled" });
     }
 
+    const owner = await creditWallet(req.user._id, claimed.amount);
+    const cash = owner?.wallet?.cashUSDT ?? 0;
     const userId = req.user._id.toString();
-    await withdrawal.deleteOne();
     notify.withdrawalDeleted(req.params.id, userId);
-    return res.json({ ok: true, msg: "Withdrawal cancelled" });
+    return res.json({
+      ok: true,
+      msg: "Withdrawal cancelled",
+      wallet: { cashUSDT: cash },
+    });
   } catch (err) {
     console.error("Cancel withdrawal error:", err);
     return res.status(500).json({ ok: false, msg: "Could not cancel withdrawal" });

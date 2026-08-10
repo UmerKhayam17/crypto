@@ -11,8 +11,8 @@ export type RealtimeMessage = {
 function buildWsUrl(): string {
   const base = getApiUrl().replace(/\/$/, "");
   const wsBase = base.replace(/^http/, "ws");
-  const token = getAuthToken();
-  return `${wsBase}/ws${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+  // Do not put JWT in the query string (proxy logs). Authenticate after connect.
+  return `${wsBase}/ws`;
 }
 
 /** Connect to platform WebSocket; reconnects with backoff. Returns cleanup. */
@@ -28,6 +28,10 @@ export function subscribeRealtime(onMessage: (msg: RealtimeMessage) => void): ()
       ws = new WebSocket(buildWsUrl());
       ws.onopen = () => {
         retry = 0;
+        const token = getAuthToken();
+        if (token && ws?.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "auth", token }));
+        }
       };
       ws.onmessage = (ev) => {
         try {

@@ -38,11 +38,14 @@ export async function apiListMySupportThreads(): Promise<SupportResponse<{ threa
   return data as SupportResponse<{ threads: SupportThread[] }>;
 }
 
-export async function apiListSupportThreads(): Promise<SupportResponse<{ threads: SupportThread[] }>> {
-  const res = await fetch(`${API_URL}/api/support/threads`, { headers: authHeaders() });
+export async function apiListSupportThreads(status?: "open" | "closed"): Promise<
+  SupportResponse<{ threads: SupportThread[]; openCount?: number }>
+> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  const res = await fetch(`${API_URL}/api/support/threads${qs}`, { headers: authHeaders() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(data.msg || "Could not load support threads", res.status);
-  return data as SupportResponse<{ threads: SupportThread[] }>;
+  return data as SupportResponse<{ threads: SupportThread[]; openCount?: number }>;
 }
 
 export async function apiListSupportThreadMessages(threadId: string): Promise<
@@ -59,9 +62,7 @@ export async function apiListSupportThreadMessages(threadId: string): Promise<
 export async function apiSendSupportMessage(input: {
   threadId?: string;
   content: string;
-}): Promise<
-  SupportResponse<{ thread: SupportThread; message: SupportMessage }>
-> {
+}): Promise<SupportResponse<{ thread: SupportThread; message: SupportMessage }>> {
   const res = await fetch(`${API_URL}/api/support/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -72,3 +73,16 @@ export async function apiSendSupportMessage(input: {
   return data as SupportResponse<{ thread: SupportThread; message: SupportMessage }>;
 }
 
+export async function apiSetSupportThreadStatus(
+  threadId: string,
+  status: "open" | "closed"
+): Promise<SupportResponse<{ thread: SupportThread }>> {
+  const res = await fetch(`${API_URL}/api/support/threads/${encodeURIComponent(threadId)}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ status }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(data.msg || "Could not update ticket", res.status);
+  return data as SupportResponse<{ thread: SupportThread }>;
+}

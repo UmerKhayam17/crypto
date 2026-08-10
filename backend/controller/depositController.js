@@ -4,6 +4,8 @@ const Deposit = require("../model/Deposit");
 const User = require("../model/User");
 const Settings = require("../model/Settings");
 const formatDeposit = require("../utils/formatDeposit");
+const { creditWallet } = require("../utils/wallet");
+const { randomUploadName } = require("../utils/uploadNames");
 const notify = require("../utils/realtimeNotify");
 
 const uploadDir = path.join(__dirname, "..", "uploads");
@@ -12,7 +14,7 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 function fileUrl(req, filename) {
-  return `${req.protocol}://${req.get("host")}/uploads/${filename}`;
+  return `${req.protocol}://${req.get("host")}/api/media/${filename}`;
 }
 
 exports.createDeposit = async (req, res) => {
@@ -43,8 +45,7 @@ exports.createDeposit = async (req, res) => {
       return res.status(400).json({ ok: false, msg: "Screenshot must be an image" });
     }
 
-    const ext = path.extname(screenshotFile.originalname || "") || ".jpg";
-    const filename = `deposit-${user._id}-${Date.now()}${ext}`;
+    const filename = randomUploadName("deposit", screenshotFile.originalname, screenshotFile.mimetype);
     fs.writeFileSync(path.join(uploadDir, filename), screenshotFile.buffer);
 
     const deposit = await Deposit.create({
@@ -109,27 +110,42 @@ exports.approveDeposit = async (req, res) => {
     }
 
     if (req.user.role === "staff") {
-      const owner = await User.findById(deposit.user);
-      if (!owner || String(owner.assignedStaff) !== String(req.user._id)) {
+      const ownerCheck = await User.findById(deposit.user);
+      if (!ownerCheck || String(ownerCheck.assignedStaff) !== String(req.user._id)) {
         return res.status(403).json({ ok: false, msg: "Not authorized for this deposit" });
       }
     }
 
-    const owner = await User.findById(deposit.user);
-    if (!owner) return res.status(404).json({ ok: false, msg: "User not found" });
+    const processedBy = req.user.fname ? `${req.user.fname} ${req.user.lname}` : "Admin";
+    const claimed = await Deposit.findOneAndUpdate(
+      { _id: deposit._id, status: "pending" },
+      {
+        $set: {
+          status: "approved",
+          processedAt: Date.now(),
+          processedBy,
+        },
+      },
+      { new: true }
+    );
+    if (!claimed) {
+      return res.status(400).json({ ok: false, msg: "Deposit is not pending" });
+    }
 
-    owner.wallet = owner.wallet || { cashUSDT: 0 };
-    owner.wallet.cashUSDT = (owner.wallet.cashUSDT || 0) + deposit.amount;
-    await owner.save();
+    const owner = await creditWallet(claimed.user, claimed.amount);
+    if (!owner) {
+      await Deposit.findByIdAndUpdate(claimed._id, {
+        status: "pending",
+        processedAt: undefined,
+        processedBy: undefined,
+      });
+      return res.status(404).json({ ok: false, msg: "User not found" });
+    }
 
-    deposit.status = "approved";
-    deposit.processedAt = Date.now();
-    deposit.processedBy = req.user.fname ? `${req.user.fname} ${req.user.lname}` : "Admin";
-    await deposit.save();
-
-    const formatted = formatDeposit(deposit);
+    const cash = owner.wallet?.cashUSDT ?? 0;
+    const formatted = formatDeposit(claimed);
     notify.depositUpsert(formatted, {
-      userWallet: { cashUSDT: owner.wallet.cashUSDT },
+      userWallet: { cashUSDT: cash },
       userId: owner._id.toString(),
     });
 
@@ -137,7 +153,7 @@ exports.approveDeposit = async (req, res) => {
       ok: true,
       msg: "Deposit approved",
       deposit: formatted,
-      userWallet: { cashUSDT: owner.wallet.cashUSDT },
+      userWallet: { cashUSDT: cash },
       userId: owner._id.toString(),
     });
   } catch (err) {

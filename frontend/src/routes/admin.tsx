@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import {
   Shield, LogOut, LayoutDashboard, Users, ClipboardList, History, Wallet, Settings,
   CheckCircle2, XCircle, UserCog, Plus, Trash2, KeyRound, Pencil, TrendingUp, DollarSign,
-  Activity, FileClock, Eye, Loader2, Clock, ShieldAlert, ShieldCheck, IdCard, ArrowUp, ArrowDown, Percent, ArrowDownToLine, Crown,
+  Activity, FileClock, Eye, Loader2, Clock, ShieldAlert, ShieldCheck, IdCard, ArrowUp, ArrowDown, Percent, ArrowDownToLine, Crown, MessageSquareText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,18 +24,21 @@ import { formatPrice } from "@/services/market-data";
 import { AdminTable, type AdminColumn } from "@/components/admin-table";
 import { COUNTRIES } from "@/constants/countries";
 import { getApiUrl } from "@/lib/api-url";
+import { mediaUrl, isMediaVideo } from "@/lib/media-url";
 import { apiListVipClaims, type VipClaim } from "@/services/vip";
+import { SupportInbox } from "@/components/support-inbox";
+import { apiListSupportThreads } from "@/services/support";
 
 function getImageUrl(imagePath: string | undefined): string {
   if (!imagePath) return "";
-  if (imagePath.startsWith("data:") || imagePath.startsWith("http://") || imagePath.startsWith("https://")) {
-    return imagePath;
+  let url = imagePath;
+  if (!(imagePath.startsWith("data:") || imagePath.startsWith("http://") || imagePath.startsWith("https://"))) {
+    url = `${getApiUrl()}${imagePath.startsWith("/") ? "" : "/"}${imagePath}`;
   }
-  // Convert relative path to full URL with API base
-  return `${getApiUrl()}${imagePath}`;
+  return mediaUrl(url);
 }
 
-const VALID_SECTIONS = ["overview", "users", "kyc", "trades", "deposits", "withdrawals", "vip", "staff", "settings", "audit"] as const;
+const VALID_SECTIONS = ["overview", "users", "kyc", "trades", "deposits", "withdrawals", "vip", "support", "staff", "settings", "audit"] as const;
 type Section = (typeof VALID_SECTIONS)[number];
 
 export default function AdminPage() {
@@ -99,6 +102,7 @@ function AdminDashboard() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [vipClaims, setVipClaims] = useState<VipClaim[]>([]);
   const [vipLoading, setVipLoading] = useState(false);
+  const [openSupportCount, setOpenSupportCount] = useState(0);
   const [, startTransition] = useTransition();
 
   // Persist trade filter across refreshes
@@ -113,6 +117,21 @@ function AdminDashboard() {
   useEffect(() => {
     loadUsers();
   }, [loadUsers]);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiListSupportThreads()
+      .then((res) => {
+        if (cancelled) return;
+        const count =
+          typeof res.openCount === "number"
+            ? res.openCount
+            : (res.threads ?? []).filter((t) => t.status === "open").length;
+        setOpenSupportCount(count);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [section]);
 
   useEffect(() => {
     if (section !== "vip") return;
@@ -164,7 +183,8 @@ function AdminDashboard() {
 
   const sectionLabels: Record<Section, string> = {
     overview: "Overview", users: "Users", kyc: "KYC review", trades: "Trades",
-    deposits: "Deposits", withdrawals: "Withdrawals", vip: "VIP rewards", staff: "Staff", settings: "Settings", audit: "Audit log",
+    deposits: "Deposits", withdrawals: "Withdrawals", vip: "VIP rewards", support: "Support",
+    staff: "Staff", settings: "Settings", audit: "Audit log",
   };
 
   const panelUsers = isAdmin ? allUsers : managedUsers;
@@ -184,6 +204,7 @@ function AdminDashboard() {
     { key: "kyc", label: "KYC review", icon: ShieldCheck, badge: pendingKyc },
     { key: "deposits", label: "Deposits", icon: Wallet, badge: pendingDeposits },
     { key: "withdrawals", label: "Withdrawals", icon: ArrowDownToLine, badge: pendingWithdrawals },
+    { key: "support", label: "Support", icon: MessageSquareText, badge: openSupportCount },
     { key: "vip", label: "VIP rewards", icon: Crown },
     { key: "trades", label: "Trades", icon: Activity, badge: activeTrades },
   ] as const;
@@ -299,6 +320,7 @@ function AdminDashboard() {
                 <div className="mt-6 grid gap-4 lg:grid-cols-2">
                   <QuickCard icon={Wallet} title="Deposit queue" value={pendingDeposits} sub="awaiting verification" onClick={() => setSection("deposits")} />
                   <QuickCard icon={ArrowDownToLine} title="Withdrawal queue" value={pendingWithdrawals} sub="awaiting payout" onClick={() => setSection("withdrawals")} />
+                  <QuickCard icon={MessageSquareText} title="Support inbox" value={openSupportCount} sub="open tickets" onClick={() => setSection("support")} />
                   <QuickCard icon={TrendingUp} title="Trades total" value={panelTrades.length} sub="placed all-time" onClick={() => setSection("trades")} />
                 </div>
               </>
@@ -364,28 +386,39 @@ function AdminDashboard() {
                         <Pencil className="mr-1 h-3 w-3" />Edit
                       </Button>
                     )}
-                    <Button size="sm" variant="outline" onClick={() => {
+                    <Button size="sm" variant="outline" onClick={async () => {
                       const cur = (walletsByUser[u.id]?.cashUSDT || 0).toFixed(2);
                       const v = prompt(`Set ${u.name}'s balance (USDT):`, cur);
                       if (v == null) return;
                       const n = parseFloat(v);
                       if (!Number.isFinite(n) || n < 0) return toast.error("Invalid amount");
-                      adminSetBalance(u.id, n); toast.success(`Balance set to $${n.toFixed(2)}`);
+                      const r = await adminSetBalance(u.id, n);
+                      if (!r.ok) return toast.error(r.msg);
+                      toast.success(`Balance set to $${n.toFixed(2)}`);
                     }}>Set balance</Button>
-                    <Button size="sm" variant="outline" onClick={() => {
+                    <Button size="sm" variant="outline" onClick={async () => {
                       const v = prompt("Adjust by (USDT):", "0");
                       if (v == null) return;
                       const n = parseFloat(v);
                       if (!Number.isFinite(n)) return toast.error("Invalid amount");
-                      adminAdjustBalance(u.id, n); toast.success(`Adjusted by ${n}`);
+                      const r = await adminAdjustBalance(u.id, n);
+                      if (!r.ok) return toast.error(r.msg);
+                      toast.success(`Adjusted by ${n}`);
                     }}>Adjust</Button>
                     {isAdmin && (
                       <>
-                        <Button size="sm" variant="outline" onClick={() => { adminSuspendUser(u.id, !u.suspended); toast.success(u.suspended ? "Unsuspended" : "Suspended"); }}>
+                        <Button size="sm" variant="outline" onClick={async () => {
+                          const r = await adminSuspendUser(u.id, !u.suspended);
+                          if (!r.ok) return toast.error(r.msg);
+                          toast.success(u.suspended ? "Unsuspended" : "Suspended");
+                        }}>
                           {u.suspended ? "Unsuspend" : "Suspend"}
                         </Button>
-                        <Button size="sm" variant="ghost" className="text-destructive" onClick={() => {
-                          if (confirm(`Delete ${u.name}?`)) { adminDeleteUser(u.id); toast.success("User deleted"); }
+                        <Button size="sm" variant="ghost" className="text-destructive" onClick={async () => {
+                          if (!confirm(`Delete ${u.name}?`)) return;
+                          const r = await adminDeleteUser(u.id);
+                          if (!r.ok) return toast.error(r.msg);
+                          toast.success("User deleted");
                         }}>Delete</Button>
                       </>
                     )}
@@ -433,7 +466,7 @@ function AdminDashboard() {
                             {(["cnicFront", "cnicBack", "face"] as const).map((k) => {
                               const rawSrc = u.kyc[k];
                               const src = getImageUrl(rawSrc);
-                              const isVideo = !!src && src.startsWith("data:video");
+                              const isVideo = isMediaVideo(rawSrc) || isMediaVideo(src);
                               const label = k === "face" ? "Selfie" : k === "cnicFront" ? "Front" : "Back";
                               return (
                                 <div key={k}>
@@ -593,8 +626,8 @@ function AdminDashboard() {
                 { key: "amount", header: "Amount", align: "right", cell: (d) => <span className="font-mono font-semibold">${d.amount.toFixed(2)}</span> },
                 { key: "tx", header: "Tx hash", hideOnMobile: true, cell: (d) => <span className="font-mono text-xs text-muted-foreground break-all">{d.txHash || "—"}</span> },
                 { key: "shot", header: "Proof", cell: (d) => (
-                  <a href={d.screenshot} target="_blank" rel="noreferrer" className="inline-block">
-                    <img src={d.screenshot} alt="Proof" className="h-12 w-12 rounded border border-border object-cover" />
+                  <a href={getImageUrl(d.screenshot)} target="_blank" rel="noreferrer" className="inline-block">
+                    <img src={getImageUrl(d.screenshot)} alt="Proof" className="h-12 w-12 rounded border border-border object-cover" />
                   </a>
                 ) },
                 { key: "status", header: "Status", cell: (d) => (
@@ -692,6 +725,13 @@ function AdminDashboard() {
                 />
               );
             })()}
+
+            {active === "support" && (
+              <SupportInbox
+                embedded
+                onOpenCountChange={setOpenSupportCount}
+              />
+            )}
 
             {active === "vip" && (() => {
               const cols: AdminColumn<VipClaim>[] = [
@@ -1045,9 +1085,9 @@ function AdminDashboard() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditUser(null)}>Cancel</Button>
-            <Button className="bg-primary text-primary-foreground" onClick={() => {
+            <Button className="bg-primary text-primary-foreground" onClick={async () => {
               if (!editUser) return;
-              const r = adminUpdateUser(editUser.id, {
+              const r = await adminUpdateUser(editUser.id, {
                 fname: editUser.fname, lname: editUser.lname, email: editUser.email,
                 phone: editUser.phone, country: editUser.country,
               });
@@ -1158,7 +1198,7 @@ function AdminDashboard() {
                 {(["cnicFront", "cnicBack", "face"] as const).map((k) => {
                   const rawSrc = kycView.kyc[k];
                   const src = getImageUrl(rawSrc);
-                  const isVideo = !!src && src.startsWith("data:video");
+                  const isVideo = isMediaVideo(rawSrc) || isMediaVideo(src);
                   return (
                     <div key={k}>
                       {src && (isVideo ? (
@@ -1199,8 +1239,8 @@ function AdminDashboard() {
             return (
               <div className="grid gap-4 sm:grid-cols-[1fr_1.2fr]">
                 <div className="space-y-3">
-                  <a href={d.screenshot} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md border border-border">
-                    <img src={d.screenshot} alt="Proof" className="h-48 w-full object-contain bg-muted/30" />
+                  <a href={getImageUrl(d.screenshot)} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md border border-border">
+                    <img src={getImageUrl(d.screenshot)} alt="Proof" className="h-48 w-full object-contain bg-muted/30" />
                   </a>
                   <dl className="space-y-1 text-xs">
                     <div className="flex justify-between gap-2"><dt className="text-muted-foreground">User</dt><dd className="font-medium text-right">{u?.name || "—"}</dd></div>

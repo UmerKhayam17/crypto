@@ -1,5 +1,12 @@
 const normalizeId = require("./normalizeId");
 
+function toMs(value) {
+  if (value == null) return Date.now();
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const t = new Date(value).getTime();
+  return Number.isFinite(t) ? t : Date.now();
+}
+
 function formatSupportMessage(doc) {
   const json = doc?.toJSON ? doc.toJSON() : doc;
   return {
@@ -8,9 +15,8 @@ function formatSupportMessage(doc) {
     senderId: normalizeId(json.senderId || json.sender) || normalizeId(json.sender?._id) || "",
     senderRole: json.senderRole,
     content: json.content,
-    createdAt: json.createdAt,
+    createdAt: toMs(json.createdAt),
   };
 }
 
 module.exports = formatSupportMessage;
-

@@ -46,3 +46,47 @@ export async function apiUpdateTradeControl(
     body: JSON.stringify(payload),
   });
 }
+
+export async function apiSuspendUser(
+  userId: string,
+  suspended: boolean
+): Promise<{ ok: boolean; msg: string; user: ApiUser }> {
+  return request(`/api/users/${userId}/suspend`, {
+    method: "PATCH",
+    body: JSON.stringify({ suspended }),
+  });
+}
+
+export async function apiAdjustBalance(
+  userId: string,
+  delta: number
+): Promise<{ ok: boolean; msg: string; user: ApiUser; wallet: { cashUSDT: number } }> {
+  return request(`/api/users/${userId}/balance/adjust`, {
+    method: "PATCH",
+    body: JSON.stringify({ delta }),
+  });
+}
+
+export async function apiSetBalance(
+  userId: string,
+  balance: number
+): Promise<{ ok: boolean; msg: string; user: ApiUser; wallet: { cashUSDT: number } }> {
+  return request(`/api/users/${userId}/balance`, {
+    method: "PATCH",
+    body: JSON.stringify({ balance }),
+  });
+}
+
+export async function apiUpdateUserProfile(
+  userId: string,
+  patch: { fname?: string; lname?: string; email?: string; phone?: string; country?: string }
+): Promise<{ ok: boolean; msg: string; user: ApiUser }> {
+  return request(`/api/users/${userId}/profile`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function apiDeleteUser(userId: string): Promise<{ ok: boolean; msg: string }> {
+  return request(`/api/users/${userId}`, { method: "DELETE" });
+}

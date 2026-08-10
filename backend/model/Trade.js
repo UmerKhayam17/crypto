@@ -17,7 +17,7 @@ const tradeSchema = new mongoose.Schema(
     expiresAt: { type: Number, required: true, index: true },
     status: {
       type: String,
-      enum: ["active", "won", "lost"],
+      enum: ["active", "settling", "won", "lost"],
       default: "active",
       index: true,
     },
@@ -27,7 +27,7 @@ const tradeSchema = new mongoose.Schema(
     resolvedAt: { type: Number },
     outcomeSource: {
       type: String,
-      enum: ["random", "forced-win", "forced-loss", "admin", "planned", "user-close"],
+      enum: ["random", "market", "forced-win", "forced-loss", "admin", "planned", "user-close"],
       default: "random",
     },
     plannedOutcome: {

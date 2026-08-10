@@ -1,4 +1,5 @@
-function formatUser(user) {
+function formatUser(user, opts = {}) {
+  const staff = !!opts.staff;
   const json = user.toJSON();
   let assignedStaffId = null;
   let assignedStaffName = null;
@@ -16,7 +17,7 @@ function formatUser(user) {
     assignedStaffId = json.assignedStaff.toString();
   }
 
-  return {
+  const base = {
     id: json.id,
     email: json.email,
     fname: json.fname,
@@ -26,14 +27,20 @@ function formatUser(user) {
     country: json.country,
     role: json.role,
     suspended: json.suspended,
-    forceOutcome: json.forceOutcome,
-    profitPercent: json.profitPercent ?? null,
-    lossPercent: json.lossPercent ?? 100,
     kyc: json.kyc,
     createdAt: new Date(json.createdAt).getTime(),
     wallet: json.wallet,
     assignedStaffId,
     assignedStaffName,
+  };
+
+  if (!staff) return base;
+
+  return {
+    ...base,
+    forceOutcome: json.forceOutcome,
+    profitPercent: json.profitPercent ?? null,
+    lossPercent: json.lossPercent ?? 100,
   };
 }
 
