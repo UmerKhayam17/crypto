@@ -1,6 +1,6 @@
-# Crypto Haven Net
+# Evios Trader
 
-This repository contains the full-stack Crypto Haven Net application.
+This repository contains the full-stack Evios Trader application.
 
 ## Structure
 

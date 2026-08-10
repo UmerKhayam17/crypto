@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { Link } from "react-router-dom";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ArrowDown, ArrowUp, CheckCircle2, XCircle } from "lucide-react";
@@ -11,15 +11,7 @@ import { formatPrice } from "@/services/market-data";
 
 import { RequireAuth } from "@/components/auth/require-auth";
 
-export const Route = createFileRoute("/portfolio")({
-  head: () => ({ meta: [
-    { title: "Portfolio — NovaTrade" },
-    { name: "description", content: "Track your active timed trades, balance and trading history." },
-  ] }),
-  component: PortfolioPage,
-});
-
-function PortfolioPage() {
+export default function PortfolioPage() {
   return (
     <RequireAuth roles={["user"]}>
       <PortfolioContent />

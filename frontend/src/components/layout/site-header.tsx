@@ -1,4 +1,4 @@
-import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   TrendingUp,
   User as UserIcon,
@@ -52,7 +52,7 @@ function KycPill({ status }: { status: "none" | "pending" | "approved" | "reject
 }
 
 export function SiteHeader() {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { pathname } = useLocation();
   const { user, isStaffOrAdmin, isAdmin, staffMe, logout } = useStore();
   const navigate = useNavigate();
 
@@ -79,7 +79,7 @@ export function SiteHeader() {
             <TrendingUp className="h-4 w-4 text-primary-foreground sm:h-5 sm:w-5" />
           </div>
           <span className="text-base font-bold tracking-tight sm:text-lg">
-            Nova<span className="text-primary">Trade</span>
+            Evios<span className="text-primary"> Trader</span>
           </span>
         </Link>
 
@@ -141,7 +141,7 @@ export function SiteHeader() {
                   <Link to="/support" className="flex items-center gap-2"><MessageSquareText className="h-4 w-4" />Customer support</Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => { logout(); navigate({ to: "/" }); }} className="text-destructive focus:text-destructive">
+                <DropdownMenuItem onClick={() => { logout(); navigate("/"); }} className="text-destructive focus:text-destructive">
                   <LogOut className="mr-2 h-4 w-4" />Sign out
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -169,7 +169,7 @@ export function SiteHeader() {
                   <Link to="/support" className="flex items-center gap-2"><MessageSquareText className="h-4 w-4" />Customer support</Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => { logout(); navigate({ to: "/" }); }} className="text-destructive focus:text-destructive">
+                <DropdownMenuItem onClick={() => { logout(); navigate("/"); }} className="text-destructive focus:text-destructive">
                   <LogOut className="mr-2 h-4 w-4" />Sign out
                 </DropdownMenuItem>
               </DropdownMenuContent>

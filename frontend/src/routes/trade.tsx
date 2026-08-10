@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { useSearchParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SiteHeader } from "@/components/layout/site-header";
@@ -9,19 +9,7 @@ import { SpotTicket } from "@/components/spot-ticket";
 import { useStore } from "@/context/store";
 import { formatPrice } from "@/services/market-data";
 
-type Search = { symbol?: string };
 type TradeMode = "futures" | "spot";
-
-export const Route = createFileRoute("/trade")({
-  validateSearch: (s: Record<string, unknown>): Search => ({
-    symbol: typeof s.symbol === "string" ? s.symbol : undefined,
-  }),
-  head: () => ({ meta: [
-    { title: "Trade — NovaTrade" },
-    { name: "description", content: "Spot and futures trading on crypto, forex, stocks and precious metals." },
-  ] }),
-  component: TradePage,
-});
 
 function TradeTicket({ asset, mode }: { asset: ReturnType<typeof useStore>["assets"][0]; mode: TradeMode }) {
   return mode === "spot" ? <SpotTicket asset={asset} key={`spot-${asset.symbol}`} /> : <BinaryTicket asset={asset} key={`fut-${asset.symbol}`} />;
@@ -52,26 +40,26 @@ function ModeToggle({ mode, onChange }: { mode: TradeMode; onChange: (m: TradeMo
   );
 }
 
-function TradePage() {
+export default function TradePage() {
   const { assets, wallet, user } = useStore();
-  const search = Route.useSearch();
-  const [symbol, setSymbol] = useState(search.symbol || "BTC/USDT");
+  const [searchParams] = useSearchParams();
+  const [symbol, setSymbol] = useState(searchParams.get("symbol") || "BTC/USDT");
   const asset = assets.find((a) => a.symbol === symbol) || assets[0];
   const [mode, setMode] = useState<TradeMode>(() => {
     if (typeof window === "undefined") return "futures";
-    const v = window.localStorage.getItem("novatrade.trade.mode");
+    const v = window.localStorage.getItem("evios-trader.trade.mode");
     return v === "spot" || v === "futures" ? v : "futures";
   });
   const [mobileTab, setMobileTab] = useState<string>(() => {
     if (typeof window === "undefined") return "chart";
-    const v = window.localStorage.getItem("novatrade.trade.mobileTab");
+    const v = window.localStorage.getItem("evios-trader.trade.mobileTab");
     return v === "chart" || v === "book" || v === "ticket" ? v : "chart";
   });
   useEffect(() => {
-    try { window.localStorage.setItem("novatrade.trade.mobileTab", mobileTab); } catch {}
+    try { window.localStorage.setItem("evios-trader.trade.mobileTab", mobileTab); } catch {}
   }, [mobileTab]);
   useEffect(() => {
-    try { window.localStorage.setItem("novatrade.trade.mode", mode); } catch {}
+    try { window.localStorage.setItem("evios-trader.trade.mode", mode); } catch {}
   }, [mode]);
 
   return (

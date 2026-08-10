@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { useStore, type Role } from "@/context/store";
 import { homePathForRole } from "@/lib/route-auth";
@@ -16,11 +16,11 @@ export function RequireAuth({ roles, children }: RequireAuthProps) {
   useEffect(() => {
     if (!authReady) return;
     if (!session) {
-      navigate({ to: "/login", replace: true });
+      navigate("/login", { replace: true });
       return;
     }
     if (roles && !roles.includes(session.role)) {
-      navigate({ to: homePathForRole(session.role), replace: true });
+      navigate(homePathForRole(session.role), { replace: true });
     }
   }, [authReady, session, roles, navigate]);
 

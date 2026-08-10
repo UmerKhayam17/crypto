@@ -9,7 +9,7 @@ export function SiteFooter() {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: "var(--gradient-emerald)" }}>
               <TrendingUp className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="font-bold">NovaTrade</span>
+            <span className="font-bold">Evios Trader</span>
           </div>
           <p className="mt-3 text-sm text-muted-foreground">Trade crypto, forex and stocks on a unified premium platform.</p>
         </div>
@@ -29,7 +29,7 @@ export function SiteFooter() {
         ))}
       </div>
       <div className="border-t border-border/60 px-4 py-4 text-center text-xs text-muted-foreground">
-        © {new Date().getFullYear()} NovaTrade — Demo platform. Not financial advice.
+        © {new Date().getFullYear()} Evios Trader — Demo platform. Not financial advice.
       </div>
     </footer>
   );

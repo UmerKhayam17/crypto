@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { Link } from "react-router-dom";
 import { useMemo } from "react";
 import {
   User as UserIcon, Mail, Phone, Globe, ShieldCheck, Wallet,
@@ -14,15 +14,7 @@ import { COUNTRIES } from "@/constants/countries";
 
 import { RequireAuth } from "@/components/auth/require-auth";
 
-export const Route = createFileRoute("/profile")({
-  head: () => ({ meta: [
-    { title: "My profile — NovaTrade" },
-    { name: "description", content: "Manage your NovaTrade account, KYC verification status, deposits and trading history." },
-  ] }),
-  component: ProfilePage,
-});
-
-function ProfilePage() {
+export default function ProfilePage() {
   return (
     <RequireAuth roles={["user"]}>
       <ProfileContent />

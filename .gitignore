@@ -17,7 +17,7 @@ coverage/
 # Environment files and secrets
 .env
 .env.*
-!.env.example
+.env.example
 
 # Dependency lock files are usually okay to commit, but keep generated/test artifacts out
 npm-debug.log*

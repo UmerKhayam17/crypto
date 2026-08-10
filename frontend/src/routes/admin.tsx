@@ -1,4 +1,4 @@
-import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
@@ -23,8 +23,6 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { formatPrice } from "@/services/market-data";
 import { AdminTable, type AdminColumn } from "@/components/admin-table";
 import { COUNTRIES } from "@/constants/countries";
-import { getAuthToken, apiMe } from "@/services/auth";
-import { homePathForRole } from "@/lib/route-auth";
 import { getApiUrl } from "@/lib/api-url";
 import { apiListVipClaims, type VipClaim } from "@/services/vip";
 
@@ -40,33 +38,7 @@ function getImageUrl(imagePath: string | undefined): string {
 const VALID_SECTIONS = ["overview", "users", "kyc", "trades", "deposits", "withdrawals", "vip", "staff", "settings", "audit"] as const;
 type Section = (typeof VALID_SECTIONS)[number];
 
-type AdminSearch = { section?: Section };
-
-export const Route = createFileRoute("/admin")({
-  validateSearch(search: Record<string, unknown>): AdminSearch {
-    const raw = typeof search.section === "string" ? search.section : "overview";
-    return { section: VALID_SECTIONS.includes(raw as Section) ? (raw as Section) : "overview" };
-  },
-  beforeLoad: async () => {
-    const token = getAuthToken();
-    if (!token) {
-      throw redirect({ to: "/login" });
-    }
-
-    try {
-      const { user } = await apiMe();
-      if (!(["admin", "staff"].includes(user.role))) {
-        throw redirect({ to: homePathForRole(user.role) });
-      }
-    } catch {
-      throw redirect({ to: "/login" });
-    }
-  },
-  head: () => ({ meta: [{ title: "Admin — NovaTrade" }, { name: "description", content: "NovaTrade administrator console." }] }),
-  component: AdminPage,
-});
-
-function AdminPage() {
+export default function AdminPage() {
   return (
     <RequireAuth roles={["admin", "staff"]}>
       <AdminDashboard />
@@ -88,12 +60,15 @@ function AdminDashboard() {
     logout, auditLog, auditLogFor, adminClearAuditLog,
   } = useStore();
   const nav = useNavigate();
-  const search = Route.useSearch();
-  const section = search.section ?? "overview";
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawSection = searchParams.get("section") ?? "overview";
+  const section: Section = VALID_SECTIONS.includes(rawSection as Section)
+    ? (rawSection as Section)
+    : "overview";
   const [userStatus, setUserStatus] = useState<string>("all");
   const [tradeStatus, setTradeStatus] = useState<string>(() => {
     if (typeof window === "undefined") return "all";
-    const v = window.localStorage.getItem("novatrade.admin.tradeStatus");
+    const v = window.localStorage.getItem("evios-trader.admin.tradeStatus");
     return v === "active" || v === "won" || v === "lost" || v === "all" ? v : "all";
   });
   const [depositStatus, setDepositStatus] = useState<string>("pending");
@@ -128,7 +103,7 @@ function AdminDashboard() {
 
   // Persist trade filter across refreshes
   useEffect(() => {
-    try { window.localStorage.setItem("novatrade.admin.tradeStatus", tradeStatus); } catch {}
+    try { window.localStorage.setItem("evios-trader.admin.tradeStatus", tradeStatus); } catch {}
   }, [tradeStatus]);
 
   useEffect(() => { setWalletDraft(walletAddress); }, [walletAddress]);
@@ -222,7 +197,7 @@ function AdminDashboard() {
   const active: Section = allowed.has(section) ? section : "overview";
 
   const setSection = (next: Section) => {
-    nav({ to: "/admin", search: (prev) => ({ ...prev, section: next }) });
+    setSearchParams({ section: next }, { replace: true });
   };
 
   return (
@@ -235,7 +210,7 @@ function AdminDashboard() {
                 <Shield className="h-4 w-4 text-primary-foreground" />
               </div>
               <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-                <div className="truncate text-sm font-bold leading-tight">NovaTrade</div>
+                <div className="truncate text-sm font-bold leading-tight">Evios Trader</div>
                 <div className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">Control Center</div>
               </div>
             </div>
@@ -285,7 +260,7 @@ function AdminDashboard() {
                 <SidebarMenuButton asChild tooltip="View site"><Link to="/"><LayoutDashboard className="h-4 w-4" /><span>View site</span></Link></SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton onClick={() => { logout(); nav({ to: "/" }); }} tooltip="Sign out" className="text-destructive hover:bg-destructive/10 hover:text-destructive">
+                <SidebarMenuButton onClick={() => { logout(); nav("/"); }} tooltip="Sign out" className="text-destructive hover:bg-destructive/10 hover:text-destructive">
                   <LogOut className="h-4 w-4" /><span>Sign out</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>

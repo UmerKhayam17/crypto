@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { Link } from "react-router-dom";
 import { useState, useMemo } from "react";
 import { Search } from "lucide-react";
 import { SiteHeader } from "@/components/layout/site-header";
@@ -8,19 +8,9 @@ import { Button } from "@/components/ui/button";
 import { useStore } from "@/context/store";
 import { formatPrice, formatBig } from "@/services/market-data";
 
-export const Route = createFileRoute("/markets")({
-  head: () => ({
-    meta: [
-      { title: "Markets — NovaTrade" },
-      { name: "description", content: "Live prices for 500+ crypto, forex and stock markets, updated in real time." },
-    ],
-  }),
-  component: MarketsPage,
-});
-
 const TABS = ["all", "crypto", "metals", "forex", "stocks"] as const;
 
-function MarketsPage() {
+export default function MarketsPage() {
   const { assets } = useStore();
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<(typeof TABS)[number]>("all");
@@ -94,7 +84,7 @@ function MarketsPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Button asChild size="sm" variant="outline">
-                        <Link to="/trade" search={{ symbol: a.symbol } as never}>Trade</Link>
+                        <Link to={`/trade?symbol=${encodeURIComponent(a.symbol)}`}>Trade</Link>
                       </Button>
                     </td>
                   </tr>
