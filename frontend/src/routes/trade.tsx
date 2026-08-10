@@ -47,19 +47,19 @@ export default function TradePage() {
   const asset = assets.find((a) => a.symbol === symbol) || assets[0];
   const [mode, setMode] = useState<TradeMode>(() => {
     if (typeof window === "undefined") return "futures";
-    const v = window.localStorage.getItem("novatrade.trade.mode");
+    const v = window.localStorage.getItem("evios-trader.trade.mode");
     return v === "spot" || v === "futures" ? v : "futures";
   });
   const [mobileTab, setMobileTab] = useState<string>(() => {
     if (typeof window === "undefined") return "chart";
-    const v = window.localStorage.getItem("novatrade.trade.mobileTab");
+    const v = window.localStorage.getItem("evios-trader.trade.mobileTab");
     return v === "chart" || v === "book" || v === "ticket" ? v : "chart";
   });
   useEffect(() => {
-    try { window.localStorage.setItem("novatrade.trade.mobileTab", mobileTab); } catch {}
+    try { window.localStorage.setItem("evios-trader.trade.mobileTab", mobileTab); } catch {}
   }, [mobileTab]);
   useEffect(() => {
-    try { window.localStorage.setItem("novatrade.trade.mode", mode); } catch {}
+    try { window.localStorage.setItem("evios-trader.trade.mode", mode); } catch {}
   }, [mode]);
 
   return (

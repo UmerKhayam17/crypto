@@ -342,7 +342,7 @@ type Store = {
 };
 
 const Ctx = createContext<Store | null>(null);
-const KEY = "novatrade_v4";
+const KEY = "evios_trader_v4";
 
 const STARTING_CASH = 0;
 

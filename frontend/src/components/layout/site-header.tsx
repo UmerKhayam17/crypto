@@ -79,7 +79,7 @@ export function SiteHeader() {
             <TrendingUp className="h-4 w-4 text-primary-foreground sm:h-5 sm:w-5" />
           </div>
           <span className="text-base font-bold tracking-tight sm:text-lg">
-            Nova<span className="text-primary">Trade</span>
+            Evios<span className="text-primary"> Trader</span>
           </span>
         </Link>
 

@@ -68,7 +68,7 @@ function AdminDashboard() {
   const [userStatus, setUserStatus] = useState<string>("all");
   const [tradeStatus, setTradeStatus] = useState<string>(() => {
     if (typeof window === "undefined") return "all";
-    const v = window.localStorage.getItem("novatrade.admin.tradeStatus");
+    const v = window.localStorage.getItem("evios-trader.admin.tradeStatus");
     return v === "active" || v === "won" || v === "lost" || v === "all" ? v : "all";
   });
   const [depositStatus, setDepositStatus] = useState<string>("pending");
@@ -103,7 +103,7 @@ function AdminDashboard() {
 
   // Persist trade filter across refreshes
   useEffect(() => {
-    try { window.localStorage.setItem("novatrade.admin.tradeStatus", tradeStatus); } catch {}
+    try { window.localStorage.setItem("evios-trader.admin.tradeStatus", tradeStatus); } catch {}
   }, [tradeStatus]);
 
   useEffect(() => { setWalletDraft(walletAddress); }, [walletAddress]);
@@ -210,7 +210,7 @@ function AdminDashboard() {
                 <Shield className="h-4 w-4 text-primary-foreground" />
               </div>
               <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-                <div className="truncate text-sm font-bold leading-tight">NovaTrade</div>
+                <div className="truncate text-sm font-bold leading-tight">Evios Trader</div>
                 <div className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">Control Center</div>
               </div>
             </div>

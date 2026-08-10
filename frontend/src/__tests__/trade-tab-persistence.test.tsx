@@ -3,7 +3,7 @@ import { render, screen, cleanup, act } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { setViewport } from "./setup";
 
-const KEY = "novatrade.trade.mobileTab";
+const KEY = "evios-trader.trade.mobileTab";
 
 function MobileTabs({ onSetter }: { onSetter?: (set: (v: string) => void) => void } = {}) {
   const [tab, setTab] = useState<string>(() => {

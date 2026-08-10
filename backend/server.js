@@ -35,7 +35,7 @@ app.use("/uploads", cors(), express.static(path.join(__dirname, "uploads")));
 app.use(morgan("dev"));
 
 app.get("/", (_req, res) => {
-  res.json({ ok: true, msg: "Crypto Haven API running" });
+  res.json({ ok: true, msg: "Evios Trader API running" });
 });
 
 app.get("/api/health", (_req, res) => {

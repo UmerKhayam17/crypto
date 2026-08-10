@@ -85,7 +85,7 @@ export default function IndexPage() {
       {/* FEATURES */}
       <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6">
         <div className="text-center">
-          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Why traders choose NovaTrade</h2>
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Why traders choose Evios Trader</h2>
           <p className="mt-3 text-muted-foreground">Everything you need to trade with confidence.</p>
         </div>
         <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

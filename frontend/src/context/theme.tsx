@@ -10,7 +10,7 @@ import {
 
 export type ThemeMode = "dark" | "light";
 
-const STORAGE_KEY = "novatrade-theme";
+const STORAGE_KEY = "evios-trader-theme";
 
 type ThemeContextValue = {
   theme: ThemeMode;
