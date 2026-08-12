@@ -121,9 +121,36 @@ export const SEED_ASSETS: Asset[] = [
   { symbol: "AGIX/USDT", name: "SingularityNET", price: 0.682, change24h: 3.42, volume: 4251953025, marketCap: 2378413674, category: "crypto" },
   { symbol: "FET/USDT", name: "Fetch.ai", price: 1.42, change24h: 2.84, volume: 452052225, marketCap: 46561901550, category: "crypto" },
 
-  { symbol: "EUR/USD", name: "Euro / Dollar", price: 1.0842, change24h: 0.14, volume: 0, marketCap: 0, category: "forex" },
-  { symbol: "GBP/USD", name: "Pound / Dollar", price: 1.2715, change24h: -0.22, volume: 0, marketCap: 0, category: "forex" },
-  { symbol: "USD/JPY", name: "Dollar / Yen", price: 156.84, change24h: 0.42, volume: 0, marketCap: 0, category: "forex" },
+  // USD Forex pairs (quote = foreign currency per 1 USD)
+  { symbol: "USD/EUR", name: "US Dollar / Euro", price: 0.9215, change24h: 0.12, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/GBP", name: "US Dollar / British Pound", price: 0.7862, change24h: -0.18, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/JPY", name: "US Dollar / Japanese Yen", price: 156.84, change24h: 0.42, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/CHF", name: "US Dollar / Swiss Franc", price: 0.8842, change24h: 0.08, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/AUD", name: "US Dollar / Australian Dollar", price: 1.5324, change24h: -0.24, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/CAD", name: "US Dollar / Canadian Dollar", price: 1.3682, change24h: 0.16, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/NZD", name: "US Dollar / New Zealand Dollar", price: 1.6842, change24h: -0.11, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/CNY", name: "US Dollar / Chinese Yuan", price: 7.2482, change24h: 0.05, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/HKD", name: "US Dollar / Hong Kong Dollar", price: 7.8124, change24h: 0.02, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/SGD", name: "US Dollar / Singapore Dollar", price: 1.3428, change24h: 0.09, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/INR", name: "US Dollar / Indian Rupee", price: 83.42, change24h: 0.14, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/PKR", name: "US Dollar / Pakistani Rupee", price: 278.45, change24h: 0.22, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/TRY", name: "US Dollar / Turkish Lira", price: 34.28, change24h: 0.48, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/ZAR", name: "US Dollar / South African Rand", price: 18.42, change24h: -0.32, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/MXN", name: "US Dollar / Mexican Peso", price: 17.84, change24h: 0.18, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/BRL", name: "US Dollar / Brazilian Real", price: 5.124, change24h: -0.28, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/RUB", name: "US Dollar / Russian Ruble", price: 92.48, change24h: 0.35, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/PLN", name: "US Dollar / Polish Zloty", price: 3.982, change24h: 0.11, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/SEK", name: "US Dollar / Swedish Krona", price: 10.84, change24h: -0.09, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/NOK", name: "US Dollar / Norwegian Krone", price: 10.92, change24h: 0.07, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/DKK", name: "US Dollar / Danish Krone", price: 6.874, change24h: 0.06, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/THB", name: "US Dollar / Thai Baht", price: 35.82, change24h: -0.14, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/IDR", name: "US Dollar / Indonesian Rupiah", price: 15840, change24h: 0.19, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/MYR", name: "US Dollar / Malaysian Ringgit", price: 4.482, change24h: 0.08, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/KRW", name: "US Dollar / South Korean Won", price: 1368.4, change24h: 0.21, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/AED", name: "US Dollar / UAE Dirham", price: 3.6725, change24h: 0.01, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/SAR", name: "US Dollar / Saudi Riyal", price: 3.7508, change24h: 0.01, volume: 0, marketCap: 0, category: "forex" },
+  { symbol: "USD/UZS", name: "US Dollar / Uzbekistani Som", price: 12680, change24h: 0.15, volume: 0, marketCap: 0, category: "forex" },
+
   { symbol: "AAPL", name: "Apple Inc.", price: 218.42, change24h: 1.05, volume: 52_000_000, marketCap: 3_320_000_000_000, category: "stocks" },
   { symbol: "TSLA", name: "Tesla", price: 242.18, change24h: -2.14, volume: 98_000_000, marketCap: 770_000_000_000, category: "stocks" },
   { symbol: "NVDA", name: "NVIDIA", price: 1184.32, change24h: 3.62, volume: 42_000_000, marketCap: 2_910_000_000_000, category: "stocks" },
@@ -132,6 +159,8 @@ export const SEED_ASSETS: Asset[] = [
   { symbol: "XPT/USD", name: "Platinum", price: 1018.50, change24h: -0.34, volume: 0, marketCap: 0, category: "metals" },
   { symbol: "XPD/USD", name: "Palladium", price: 942.30, change24h: -1.08, volume: 0, marketCap: 0, category: "metals" },
 ];
+
+export const FOREX_SYMBOLS = SEED_ASSETS.filter((a) => a.category === "forex").map((a) => a.symbol);
 
 export function formatPrice(p: number): string {
   if (p >= 1000) return p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -226,4 +255,31 @@ export function generateCandles(base: number, count = 120, intervalMs = 60_000, 
 
 export function intervalToMs(i: Interval): number {
   return { "1m": 60_000, "5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000 }[i];
+}
+
+/** Quote currency for USD/XXX pairs (XXX). */
+export function forexQuoteCurrency(symbol: string): string | null {
+  if (!symbol.startsWith("USD/")) return null;
+  const quote = symbol.slice(4).toUpperCase();
+  return /^[A-Z]{3}$/.test(quote) ? quote : null;
+}
+
+/**
+ * Fetch USD-based forex rates. Returns map of "USD/XXX" → rate.
+ * Uses open.er-api.com (no key). Falls back to empty on failure.
+ */
+export async function fetchUsdForexRates(): Promise<Record<string, number>> {
+  const res = await fetch("https://open.er-api.com/v6/latest/USD");
+  if (!res.ok) throw new Error(`Forex rates failed: ${res.status}`);
+  const data = (await res.json()) as { result?: string; rates?: Record<string, number> };
+  if (data.result !== "success" || !data.rates) throw new Error("Forex rates unavailable");
+
+  const out: Record<string, number> = {};
+  for (const symbol of FOREX_SYMBOLS) {
+    const quote = forexQuoteCurrency(symbol);
+    if (!quote) continue;
+    const rate = Number(data.rates[quote]);
+    if (Number.isFinite(rate) && rate > 0) out[symbol] = rate;
+  }
+  return out;
 }

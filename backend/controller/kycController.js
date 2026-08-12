@@ -13,6 +13,8 @@ if (!fs.existsSync(uploadDir)) {
 
 /** Max CNIC image upload size before conversion */
 const MAX_KYC_IMAGE_BYTES = 10 * 1024 * 1024;
+/** Longest edge after resize (keeps CNIC readable, reduces storage) */
+const MAX_KYC_EDGE = 2000;
 
 async function assertKycAccess(actor, targetUser) {
   if (!targetUser || targetUser.role !== "user") return false;
@@ -22,7 +24,7 @@ async function assertKycAccess(actor, targetUser) {
 }
 
 /**
- * Convert an uploaded image buffer to WebP and write under uploads/.
+ * Compress an uploaded image, convert to WebP, and write under uploads/.
  * Returns the stored filename.
  */
 async function saveKycImageAsWebp(file, prefix) {
@@ -39,7 +41,13 @@ async function saveKycImageAsWebp(file, prefix) {
   try {
     webp = await sharp(file.buffer, { failOn: "none" })
       .rotate()
-      .webp({ quality: 82, effort: 4 })
+      .resize({
+        width: MAX_KYC_EDGE,
+        height: MAX_KYC_EDGE,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .webp({ quality: 80, effort: 5 })
       .toBuffer();
   } catch {
     const err = new Error("Could not process image — use JPG, PNG, or WebP");
@@ -50,14 +58,6 @@ async function saveKycImageAsWebp(file, prefix) {
   const filename = randomUploadName(prefix, "image.webp", "image/webp", ".webp");
   fs.writeFileSync(path.join(uploadDir, filename), webp);
   return filename;
-}
-
-function saveRawFile(file, targetName) {
-  if (!file?.buffer || !file.buffer.length) {
-    throw new Error(`Empty upload: ${targetName}`);
-  }
-  fs.writeFileSync(path.join(uploadDir, targetName), file.buffer);
-  return targetName;
 }
 
 exports.submitKyc = async (req, res) => {
@@ -71,29 +71,21 @@ exports.submitKyc = async (req, res) => {
 
     const frontFile = files.cnicFront[0];
     const backFile = files.cnicBack[0];
-    const videoFile = files.face?.[0];
 
     const frontSaved = await saveKycImageAsWebp(frontFile, "kyc-front");
     const backSaved = await saveKycImageAsWebp(backFile, "kyc-back");
-
-    let faceSaved = "";
-    if (videoFile) {
-      const faceName = randomUploadName("kyc-face", videoFile.originalname, videoFile.mimetype);
-      faceSaved = saveRawFile(videoFile, faceName);
-    }
 
     const host = req.get("host");
     const protocol = req.protocol;
     const frontUrl = `${protocol}://${host}/api/media/${frontSaved}`;
     const backUrl = `${protocol}://${host}/api/media/${backSaved}`;
-    const faceUrl = faceSaved ? `${protocol}://${host}/api/media/${faceSaved}` : "";
 
     user.kyc = {
       ...(user.kyc.toObject ? user.kyc.toObject() : user.kyc),
       status: "pending",
       cnicFront: frontUrl,
       cnicBack: backUrl,
-      face: faceUrl,
+      face: "",
       submittedAt: Date.now(),
       reviewedAt: undefined,
       reviewedBy: undefined,
@@ -118,7 +110,7 @@ exports.submitKyc = async (req, res) => {
     return res.status(500).json({
       ok: false,
       msg: err.message?.includes("Empty upload")
-        ? "Video or image upload was empty — please re-record and try again"
+        ? "Image upload was empty — please try again"
         : "Could not submit KYC",
     });
   }

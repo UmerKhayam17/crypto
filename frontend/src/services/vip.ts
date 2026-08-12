@@ -5,6 +5,8 @@ export type VipTierStatus = {
   level: number;
   name: string;
   required: number;
+  /** Incremental amount needed for this VIP step (after previous level). */
+  stepRequired: number;
   reward: number;
   status: "locked" | "claimable" | "claimed" | "pending_previous";
   claimed: boolean;
@@ -12,6 +14,9 @@ export type VipTierStatus = {
   unlocked: boolean;
   claimedAt?: number;
   progress: number;
+  /** Deposits counted toward this VIP step (0 until previous VIP is reached). */
+  progressAmount: number;
+  remaining: number;
 };
 
 export type VipClaim = {

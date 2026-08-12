@@ -24,8 +24,17 @@ const supportMessageSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      minlength: 1,
       maxlength: 2000,
+      default: "",
+    },
+    /** Authenticated media URL for optional screenshot / attachment */
+    image: {
+      type: String,
+      default: "",
+    },
+    editedAt: {
+      type: Date,
+      default: null,
     },
   },
   {
@@ -43,4 +52,3 @@ const supportMessageSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model("SupportMessage", supportMessageSchema);
-

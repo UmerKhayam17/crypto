@@ -1,7 +1,7 @@
 const Deposit = require("../model/Deposit");
 const VipClaim = require("../model/VipClaim");
 const User = require("../model/User");
-const { getTier, getTierByLevel } = require("../constants/vipRewards");
+const { getTiers, getTierByLevel, getStepRequired } = require("../constants/vipRewards");
 const formatVipClaim = require("../utils/formatVipClaim");
 const notify = require("../utils/realtimeNotify");
 
@@ -15,10 +15,21 @@ async function getTotalRecharge(userId) {
 
 function buildStatus(totalRecharge, claims) {
   const claimedLevels = new Set(claims.map((c) => c.level));
-  // Must claim previous levels first — progress one VIP at a time
   const nextLevel = claims.length === 0 ? 1 : Math.max(...claims.map((c) => c.level)) + 1;
+  const tiers = getTiers();
 
-  return getTier().map((tier) => {
+  return tiers.map((tier, index) => {
+    const prevRequired = index === 0 ? 0 : tiers[index - 1].required;
+    const stepRequired = getStepRequired(tier.level) ?? Math.max(0, tier.required - prevRequired);
+
+    // Progress for this VIP only starts after the previous VIP threshold is reached
+    const previousReached = totalRecharge >= prevRequired;
+    const rawInStep = previousReached ? Math.max(0, totalRecharge - prevRequired) : 0;
+    const progressAmount = Math.min(stepRequired, rawInStep);
+    const progress =
+      stepRequired > 0 ? Math.min(100, (progressAmount / stepRequired) * 100) : 0;
+    const remaining = Math.max(0, stepRequired - progressAmount);
+
     const claimed = claimedLevels.has(tier.level);
     const claimRecord = claims.find((c) => c.level === tier.level);
     const unlocked = totalRecharge >= tier.required;
@@ -26,21 +37,38 @@ function buildStatus(totalRecharge, claims) {
     const claimable = !claimed && unlocked && isNext;
 
     let status = "locked";
-    if (claimed) status = "claimed";
-    else if (claimable) status = "claimable";
-    else if (unlocked && !isNext) status = "pending_previous";
-    else status = "locked";
+    if (claimed || unlocked) {
+      // Reached by recharge (claim UI removed) — treat as reached
+      status = claimed ? "claimed" : "claimable";
+    } else if (!previousReached) {
+      status = "pending_previous";
+    } else {
+      status = "locked";
+    }
 
     return {
       ...tier,
+      stepRequired,
+      progressAmount,
+      remaining,
       status,
-      claimed,
+      claimed: claimed || unlocked,
       claimable,
       unlocked,
       claimedAt: claimRecord?.claimedAt,
-      progress: Math.min(100, (totalRecharge / tier.required) * 100),
+      progress,
     };
   });
+}
+
+function currentVipFromRecharge(totalRecharge) {
+  const tiers = getTiers();
+  let current = null;
+  for (const tier of tiers) {
+    if (totalRecharge >= tier.required) current = tier;
+    else break;
+  }
+  return current;
 }
 
 exports.getMyVipStatus = async (req, res) => {
@@ -52,9 +80,7 @@ exports.getMyVipStatus = async (req, res) => {
     const totalRecharge = await getTotalRecharge(req.user._id);
     const claims = await VipClaim.find({ user: req.user._id }).sort({ level: 1 });
     const tiers = buildStatus(totalRecharge, claims);
-    const currentVip = claims.length
-      ? claims.reduce((max, c) => (c.level > max.level ? c : max), claims[0])
-      : null;
+    const currentVip = currentVipFromRecharge(totalRecharge);
 
     return res.json({
       ok: true,

@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  Crown, Gift, Loader2, CheckCircle2, Lock, Wallet, Sparkles, Trophy, ArrowRight,
+  Crown, Gift, CheckCircle2, Lock, Wallet, Sparkles, Trophy, ArrowRight,
 } from "lucide-react";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
@@ -10,7 +10,6 @@ import { RequireAuth } from "@/components/auth/require-auth";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/context/store";
 import {
-  apiClaimVipReward,
   apiGetMyVipStatus,
   type VipStatusResponse,
   type VipTierStatus,
@@ -25,10 +24,9 @@ export default function RechargeActivityPage() {
 }
 
 function RechargeActivityContent() {
-  const { user, wallet, syncMyWallet } = useStore();
+  const { user, wallet } = useStore();
   const [data, setData] = useState<VipStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [claiming, setClaiming] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,37 +44,20 @@ function RechargeActivityContent() {
     void load();
   }, [load]);
 
-  const claim = async (level: number) => {
-    setClaiming(level);
-    try {
-      const res = await apiClaimVipReward(level);
-      setData(res);
-      if (res.wallet) syncMyWallet(res.wallet.cashUSDT);
-      toast.success(res.msg || "Reward claimed");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not claim reward");
-    } finally {
-      setClaiming(null);
-    }
-  };
-
   const tiers = data?.tiers ?? [];
   const total = data?.totalRecharge ?? 0;
-  const claimedCount = tiers.filter((t) => t.status === "claimed").length;
-  const claimableCount = tiers.filter((t) => t.status === "claimable").length;
+  const reachedCount = tiers.filter((t) => t.status === "claimed" || t.status === "claimable").length;
   const totalRewards = useMemo(
     () => tiers.reduce((s, t) => s + t.reward, 0),
     [tiers]
   );
-  const claimedRewards = useMemo(
-    () => tiers.filter((t) => t.claimed).reduce((s, t) => s + t.reward, 0),
+  const unlockedRewards = useMemo(
+    () => tiers.filter((t) => t.status === "claimed" || t.status === "claimable" || t.claimed).reduce((s, t) => s + t.reward, 0),
     [tiers]
   );
   const nextTier = tiers.find(
     (t) => t.status === "claimable" || t.status === "locked" || t.status === "pending_previous"
   );
-  const maxRequired = tiers.length ? Math.max(...tiers.map((t) => t.required)) : 1;
-  const overallPct = Math.min(100, (total / maxRequired) * 100);
 
   if (!user) return null;
 
@@ -163,24 +144,6 @@ function RechargeActivityContent() {
                   </div>
                 )}
               </div>
-
-              {/* Overall progress ring row */}
-              <div className="mt-7 rounded-2xl border border-white/5 bg-black/20 p-4 backdrop-blur-sm">
-                <div className="mb-2 flex items-center justify-between text-xs">
-                  <span className="font-medium text-muted-foreground">Journey to SVIP</span>
-                  <span className="font-mono text-amber-200">{overallPct.toFixed(0)}%</span>
-                </div>
-                <div className="h-3 overflow-hidden rounded-full bg-muted/40">
-                  <div
-                    className="vip-shimmer-bar h-full rounded-full transition-all duration-1000"
-                    style={{ width: `${overallPct}%` }}
-                  />
-                </div>
-                <div className="mt-2 flex justify-between text-[10px] text-muted-foreground">
-                  <span className="font-mono">${total.toFixed(2)} recharged</span>
-                  <span className="font-mono">${maxRequired.toLocaleString()} goal</span>
-                </div>
-              </div>
             </div>
 
             <CoinShowcase currentVip={data?.currentVipName ?? undefined} />
@@ -191,7 +154,7 @@ function RechargeActivityContent() {
         <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Stat icon={<Wallet className="h-4 w-4 text-primary" />} label="Total recharge" value={`$${total.toFixed(2)}`} />
           <Stat icon={<Crown className="h-4 w-4 text-amber-300" />} label="Current VIP" value={data?.currentVipName || "—"} accent="text-amber-300" />
-          <Stat icon={<Gift className="h-4 w-4 text-primary" />} label="Claimed rewards" value={`$${claimedRewards.toLocaleString()}`} />
+          <Stat icon={<Gift className="h-4 w-4 text-primary" />} label="VIP rewards" value={`$${unlockedRewards.toLocaleString()}`} />
           <Stat icon={<Trophy className="h-4 w-4 text-amber-300" />} label="Vault balance" value={`$${wallet.cashUSDT.toFixed(2)}`} className="col-span-2 lg:col-span-1" />
         </div>
 
@@ -204,35 +167,25 @@ function RechargeActivityContent() {
                 VIP path
               </h2>
               <span className="text-[11px] text-muted-foreground">
-                {claimedCount}/{tiers.length} claimed
-                {claimableCount > 0 ? ` · ${claimableCount} ready` : ""}
+                {reachedCount}/{tiers.length} reached
               </span>
             </div>
             <div className="relative">
-              <div className="vip-journey-rail absolute left-4 right-4 top-[18px] h-1 rounded-full sm:left-6 sm:right-6" />
-              <div
-                className="absolute left-4 top-[18px] h-1 rounded-full bg-gradient-to-r from-primary to-amber-400 transition-all duration-700 sm:left-6"
-                style={{ width: `calc(${(claimedCount / Math.max(1, tiers.length - 1)) * 100}% - 1.5rem)` }}
-              />
               <div className="relative flex justify-between gap-1 overflow-x-auto pb-1">
                 {tiers.map((t) => {
-                  const done = t.status === "claimed";
-                  const ready = t.status === "claimable";
+                  const done = t.status === "claimed" || t.status === "claimable";
                   return (
                     <div key={t.level} className="flex min-w-[52px] flex-col items-center gap-1.5">
                       <div
                         className={`relative z-[1] flex h-9 w-9 items-center justify-center rounded-full border-2 text-xs font-bold transition-all ${
                           done
-                            ? "border-primary bg-primary text-primary-foreground shadow-[0_0_16px_rgba(61,214,140,0.45)]"
-                            : ready
-                              ? "border-amber-400 bg-amber-400 text-amber-950 shadow-[0_0_18px_rgba(245,197,66,0.5)]"
-                              : "border-border bg-muted/60 text-muted-foreground"
+                            ? "border-amber-400/70 bg-amber-400/15 text-amber-200"
+                            : "border-border bg-muted/60 text-muted-foreground"
                         }`}
                       >
                         {done ? <CheckCircle2 className="h-4 w-4" /> : t.level}
-                        {ready && <span className="vip-pulse-ring" />}
                       </div>
-                      <span className={`text-[9px] font-semibold uppercase tracking-wide ${ready ? "text-amber-300" : done ? "text-primary" : "text-muted-foreground"}`}>
+                      <span className={`text-[9px] font-semibold uppercase tracking-wide ${done ? "text-amber-200" : "text-muted-foreground"}`}>
                         {t.name.replace("VIP", "V").replace("SVIP", "S")}
                       </span>
                     </div>
@@ -266,9 +219,6 @@ function RechargeActivityContent() {
               <TierCard
                 key={tier.level}
                 tier={tier}
-                total={total}
-                claiming={claiming === tier.level}
-                onClaim={() => void claim(tier.level)}
                 delayMs={80 + i * 80}
               />
             ))}
@@ -276,7 +226,7 @@ function RechargeActivityContent() {
         )}
 
         <p className="mt-10 text-center text-xs text-muted-foreground">
-          Recharge totals are based on approved deposits only. Rewards are credited instantly on claim.
+          Recharge totals are based on approved deposits only.
         </p>
       </main>
       <SiteFooter />
@@ -438,50 +388,37 @@ function Coin3D({
 
 function TierCard({
   tier,
-  total,
-  claiming,
-  onClaim,
   delayMs,
 }: {
   tier: VipTierStatus;
-  total: number;
-  claiming: boolean;
-  onClaim: () => void;
   delayMs: number;
 }) {
-  const remaining = Math.max(0, tier.required - total);
-  const isClaimable = tier.status === "claimable";
-  const isClaimed = tier.status === "claimed";
-  const isLocked = tier.status === "locked" || tier.status === "pending_previous";
+  const stepNeed = tier.stepRequired ?? tier.required;
+  const progressAmount = tier.progressAmount ?? 0;
+  const remaining = tier.remaining ?? Math.max(0, stepNeed - progressAmount);
+  const isReached = tier.status === "claimable" || tier.status === "claimed" || tier.unlocked;
+  const isLocked = !isReached;
+  const waitingPrevious = tier.status === "pending_previous";
 
   return (
     <div
       className={`vip-tier-enter group relative overflow-hidden rounded-2xl border p-4 transition-all sm:p-5 ${
-        isClaimable
-          ? "vip-claimable-card border-amber-400/50 bg-gradient-to-br from-amber-400/10 via-card/60 to-primary/5"
-          : isClaimed
-            ? "border-primary/40 bg-gradient-to-br from-primary/10 via-card/50 to-transparent"
-            : "border-border/50 bg-card/45 hover:border-border"
+        isReached
+          ? "border-amber-400/40 bg-gradient-to-br from-amber-400/10 via-card/50 to-transparent"
+          : "border-border/50 bg-card/45 hover:border-border"
       }`}
       style={{ animationDelay: `${delayMs}ms` }}
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent" />
-      {isClaimable && (
-        <>
-          <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-amber-400/20 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-10 left-10 h-24 w-24 rounded-full bg-primary/15 blur-2xl" />
-        </>
-      )}
 
       <div className="relative flex gap-3.5 sm:gap-5">
         <div className={`relative shrink-0 ${isLocked ? "opacity-40 grayscale" : ""}`}>
-          {isClaimable && <span className="vip-pulse-ring" />}
-          <div className={isClaimable || isClaimed ? "vip-coin-float" : ""} style={{ animationDuration: isClaimable ? "2.8s" : "4.5s" }}>
+          <div className={isReached ? "vip-coin-float" : ""} style={{ animationDuration: "4.5s" }}>
             <Coin3D
               size={64}
-              spinSec={isClaimable ? 2.4 : isClaimed ? 5.5 : 9}
+              spinSec={isReached ? 5.5 : 9}
               label={String(tier.level)}
-              variant={isClaimed ? "emerald" : "gold"}
+              variant="gold"
               large
             />
           </div>
@@ -493,71 +430,45 @@ function TierCard({
               <div className="flex flex-wrap items-center gap-2">
                 <span
                   className={`text-lg font-extrabold tracking-tight sm:text-xl ${
-                    isClaimed ? "text-primary" : isClaimable ? "text-amber-200" : "text-foreground"
+                    isReached ? "text-amber-200" : "text-foreground"
                   }`}
                 >
                   {tier.name}
                 </span>
-                <StatusBadge status={tier.status} />
+                <StatusBadge status={isReached ? "claimed" : waitingPrevious ? "pending_previous" : "locked"} />
               </div>
 
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs sm:text-sm">
                 <span className="rounded-lg border border-border/50 bg-background/40 px-2.5 py-1 font-mono text-muted-foreground">
-                  Need <span className="font-semibold text-foreground">${tier.required.toLocaleString()}</span>
+                  Need <span className="font-semibold text-foreground">${stepNeed.toLocaleString()}</span>
                 </span>
                 <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/50" />
-                <span className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1 font-mono font-bold text-primary">
+                <span className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 font-mono font-bold text-amber-200">
                   +${tier.reward.toLocaleString()}
                 </span>
               </div>
             </div>
 
             <div className="flex items-center gap-2 self-center">
-              {isClaimable && (
-                <Button
-                  size="lg"
-                  className="h-10 rounded-xl bg-gradient-to-r from-amber-300 to-amber-400 font-bold text-amber-950 shadow-[0_6px_24px_-6px_rgba(245,197,66,0.7)] hover:from-amber-200 hover:to-amber-300"
-                  disabled={claiming}
-                  onClick={onClaim}
-                >
-                  {claiming ? (
-                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Gift className="mr-1.5 h-4 w-4" />
-                  )}
-                  Claim ${tier.reward.toLocaleString()}
-                </Button>
-              )}
-              {isClaimed && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/15 px-3 py-1.5 text-xs font-bold text-primary">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Claimed
+              {isReached && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-bold text-amber-200">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Reached
                 </span>
               )}
               {isLocked && (
                 <span className="inline-flex max-w-[11rem] items-center gap-1.5 rounded-full border border-border/50 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
                   <Lock className="h-3.5 w-3.5 shrink-0" />
-                  {tier.status === "pending_previous"
-                    ? "Claim previous VIP first"
+                  {waitingPrevious
+                    ? "Reach previous VIP first"
                     : `Need $${remaining.toFixed(0)} more`}
                 </span>
               )}
             </div>
           </div>
 
-          <div className="mt-4 h-3 overflow-hidden rounded-full bg-muted/50 ring-1 ring-white/5">
-            <div
-              className={`relative h-full rounded-full transition-all duration-700 ${
-                isClaimed ? "bg-primary" : isClaimable ? "vip-shimmer-bar" : "bg-primary/35"
-              }`}
-              style={{ width: `${Math.min(100, tier.progress)}%` }}
-            />
-          </div>
-          <div className="mt-1.5 flex justify-between text-[10px] text-muted-foreground sm:text-[11px]">
+          <div className="mt-3 text-[10px] text-muted-foreground sm:text-[11px]">
             <span className="font-mono">
-              ${total.toFixed(2)} / ${tier.required.toLocaleString()}
-            </span>
-            <span className={`font-semibold ${isClaimable ? "text-amber-300" : ""}`}>
-              {Math.min(100, Math.round(tier.progress))}%
+              ${progressAmount.toFixed(2)} / ${stepNeed.toLocaleString()} recharged
             </span>
           </div>
         </div>
@@ -568,19 +479,19 @@ function TierCard({
 
 function StatusBadge({ status }: { status: VipTierStatus["status"] }) {
   const map = {
-    claimed: "bg-primary/15 text-primary border-primary/25",
-    claimable: "bg-amber-400/20 text-amber-200 border-amber-400/40",
+    claimed: "bg-amber-400/15 text-amber-200 border-amber-400/25",
+    claimable: "bg-amber-400/15 text-amber-200 border-amber-400/25",
     locked: "bg-muted/60 text-muted-foreground border-border/50",
     pending_previous: "bg-muted/60 text-muted-foreground border-border/50",
   };
   const label = {
-    claimed: "Claimed",
-    claimable: "Ready",
+    claimed: "Reached",
+    claimable: "Reached",
     locked: "Locked",
-    pending_previous: "Queued",
+    pending_previous: "Locked",
   };
   return (
-    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${map[status]}`}>
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${map[status]}`}>
       {label[status]}
     </span>
   );

@@ -3,6 +3,8 @@ const fs = require("fs");
 const jwt = require("jsonwebtoken");
 const User = require("../model/User");
 const Deposit = require("../model/Deposit");
+const SupportMessage = require("../model/SupportMessage");
+const SupportThread = require("../model/SupportThread");
 
 const uploadDir = path.join(__dirname, "..", "uploads");
 
@@ -13,9 +15,39 @@ function filenameFromUrl(url) {
   return parts[1].split(/[?#]/)[0] || null;
 }
 
+async function canAccessSupportFile(user, filename) {
+  if (!filename.startsWith("support-")) return false;
+
+  const msg = await SupportMessage.findOne({
+    image: { $regex: `${filename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$` },
+  }).select("thread senderId");
+  if (!msg) return false;
+
+  const thread = await SupportThread.findById(msg.thread).populate("user", "assignedStaff");
+  if (!thread) return false;
+
+  if (user.role === "admin") return true;
+
+  const ownerId = thread.user?._id?.toString?.() || thread.user?.toString?.();
+  if (user.role === "user") {
+    return ownerId === user._id.toString();
+  }
+
+  if (user.role === "staff") {
+    const assigned = thread.user?.assignedStaff?.toString?.() || null;
+    return !!assigned && assigned === user._id.toString();
+  }
+
+  return false;
+}
+
 async function canAccessFile(user, filename) {
   if (!user || !filename) return false;
   if (user.role === "admin") return true;
+
+  if (filename.startsWith("support-")) {
+    return canAccessSupportFile(user, filename);
+  }
 
   if (user.role === "staff") {
     const assigned = await User.find({ role: "user", assignedStaff: user._id }).select("kyc");
@@ -28,7 +60,8 @@ async function canAccessFile(user, filename) {
     const deposits = await Deposit.find({
       user: { $in: assigned.map((row) => row._id) },
     }).select("screenshot");
-    return deposits.some((d) => filenameFromUrl(d.screenshot) === filename);
+    if (deposits.some((d) => filenameFromUrl(d.screenshot) === filename)) return true;
+    return canAccessSupportFile(user, filename);
   }
 
   if (user.role === "user") {
@@ -37,7 +70,8 @@ async function canAccessFile(user, filename) {
       return true;
     }
     const deposits = await Deposit.find({ user: user._id }).select("screenshot");
-    return deposits.some((d) => filenameFromUrl(d.screenshot) === filename);
+    if (deposits.some((d) => filenameFromUrl(d.screenshot) === filename)) return true;
+    return canAccessSupportFile(user, filename);
   }
 
   return false;

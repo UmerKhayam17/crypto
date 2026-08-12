@@ -28,9 +28,8 @@ async function canAccessThread(actor, threadId) {
 
   if (actor.role === "staff") {
     const assignedStaffId = thread.user?.assignedStaff?.toString?.() || null;
-    // Staff can access their assigned users and unassigned users (claim on reply)
-    if (assignedStaffId && assignedStaffId !== actor._id.toString()) {
-      return { ok: false, msg: "Not authorized for this thread", thread: null };
+    if (!assignedStaffId || assignedStaffId !== actor._id.toString()) {
+      return { ok: false, msg: "Not authorized — only assigned customers", thread: null };
     }
     return { ok: true, thread };
   }
@@ -56,16 +55,71 @@ async function threadWithLastMessage(thread) {
   return { thread: formattedThread, lastMessage: formattedLast };
 }
 
-async function maybeClaimUser(actor, thread) {
-  if (actor.role !== "staff") return;
-  const userId = thread.user?._id || thread.user;
-  if (!userId) return;
-  const owner = await User.findById(userId);
-  if (!owner || owner.role !== "user") return;
-  if (owner.assignedStaff) return;
-  owner.assignedStaff = actor._id;
-  await owner.save();
-  thread.user = owner;
+function readerLastReadAt(thread, readerId) {
+  const id = readerId?.toString?.();
+  if (!id) return new Date(0);
+  let max = 0;
+  for (const entry of thread.reads || []) {
+    if (entry.reader?.toString?.() !== id) continue;
+    const t = entry?.at ? new Date(entry.at).getTime() : 0;
+    if (t > max) max = t;
+  }
+  return max > 0 ? new Date(max) : new Date(0);
+}
+
+async function markThreadReadDoc(thread, readerId) {
+  const threadId = thread?._id;
+  const rid = readerId;
+  if (!threadId || !rid) return thread;
+  const now = new Date();
+
+  // Prefer atomic updates to avoid VersionError under concurrent loads
+  let updated = await SupportThread.findOneAndUpdate(
+    { _id: threadId, "reads.reader": rid },
+    { $set: { "reads.$.at": now } },
+    { new: true }
+  );
+  if (!updated) {
+    updated = await SupportThread.findByIdAndUpdate(
+      threadId,
+      { $push: { reads: { reader: rid, at: now } } },
+      { new: true }
+    );
+  }
+  return updated || thread;
+}
+
+async function threadsForActor(actor) {
+  if (actor.role === "user") {
+    return SupportThread.find({ user: actor._id }).select("_id reads user").limit(50);
+  }
+  if (actor.role === "staff") {
+    const assignedUsers = await User.find({
+      role: "user",
+      assignedStaff: actor._id,
+    }).select("_id");
+    const ids = assignedUsers.map((u) => u._id);
+    if (ids.length === 0) return [];
+    return SupportThread.find({ user: { $in: ids } }).select("_id reads user").limit(200);
+  }
+  if (actor.role === "admin") {
+    return SupportThread.find({}).select("_id reads user").limit(200);
+  }
+  return [];
+}
+
+function unreadMessageFilter(actor, thread, since) {
+  const filter = {
+    thread: thread._id,
+    createdAt: { $gt: since },
+    senderId: { $ne: actor._id },
+  };
+  if (actor.role === "user") {
+    filter.senderRole = { $in: ["staff", "admin"] };
+  } else {
+    filter.senderRole = "user";
+  }
+  return filter;
 }
 
 exports.listMyThreads = async (req, res) => {
@@ -103,39 +157,51 @@ exports.listThreads = async (req, res) => {
       return res.status(403).json({ ok: false, msg: "Admin/staff access required" });
     }
 
-    let query = {};
+    const userQuery = { role: "user" };
     if (req.user.role === "staff") {
-      const assignedUsers = await User.find({
-        role: "user",
-        $or: [{ assignedStaff: req.user._id }, { assignedStaff: null }, { assignedStaff: { $exists: false } }],
-      }).select("_id");
-      const ids = assignedUsers.map((u) => u._id);
-      if (ids.length === 0) return res.json({ ok: true, threads: [], openCount: 0 });
-      query = { user: { $in: ids } };
+      userQuery.assignedStaff = req.user._id;
     }
 
-    const statusFilter = req.query.status;
-    if (statusFilter === "open" || statusFilter === "closed") {
-      query.status = statusFilter;
-    }
+    const customers = await User.find(userQuery)
+      .select("fname lname name email assignedStaff createdAt")
+      .sort({ createdAt: -1 })
+      .limit(300);
 
-    const threads = await SupportThread.find(query)
-      .populate("user", "fname lname name email assignedStaff")
-      .sort({ updatedAt: -1 })
-      .limit(100);
+    if (customers.length === 0) {
+      return res.json({ ok: true, threads: [], openCount: 0 });
+    }
 
     const enriched = [];
-    for (const t of threads) {
-      const lastMessage = await SupportMessage.findOne({ thread: t._id }).sort({ createdAt: -1 });
+    for (const customer of customers) {
+      let thread = await SupportThread.findOne({ user: customer._id, status: "open" }).sort({
+        updatedAt: -1,
+      });
+      if (!thread) {
+        thread = await SupportThread.findOne({ user: customer._id }).sort({ updatedAt: -1 });
+      }
+      if (!thread) {
+        thread = await SupportThread.create({ user: customer._id, status: "open" });
+      }
+      // Keep every customer available in support (no closed inbox)
+      if (thread.status !== "open") {
+        thread.status = "open";
+        await thread.save();
+      }
+
+      thread.user = customer;
+      const lastMessage = await SupportMessage.findOne({ thread: thread._id }).sort({ createdAt: -1 });
       enriched.push({
-        ...formatSupportThread(t),
+        ...formatSupportThread({
+          ...(thread.toJSON ? thread.toJSON() : thread),
+          user: customer,
+        }),
         lastMessage: lastMessage ? formatSupportMessage(lastMessage) : undefined,
       });
     }
 
-    const openCount = enriched.filter((t) => t.status === "open").length;
+    enriched.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-    return res.json({ ok: true, threads: enriched, openCount });
+    return res.json({ ok: true, threads: enriched, openCount: enriched.length });
   } catch (err) {
     console.error("listThreads error:", err);
     return res.status(500).json({ ok: false, msg: "Could not load support threads" });
@@ -147,6 +213,12 @@ exports.listThreadMessages = async (req, res) => {
     const { id } = req.params;
     const access = await canAccessThread(req.user, id);
     if (!access.ok) return res.status(403).json({ ok: false, msg: access.msg });
+
+    try {
+      await markThreadReadDoc(access.thread, req.user._id);
+    } catch (markErr) {
+      console.warn("markThreadReadDoc soft-fail:", markErr?.message || markErr);
+    }
 
     const messages = await SupportMessage.find({ thread: access.thread._id }).sort({ createdAt: 1 });
     return res.json({
@@ -160,18 +232,77 @@ exports.listThreadMessages = async (req, res) => {
   }
 };
 
-exports.sendMessage = async (req, res) => {
+exports.getUnread = async (req, res) => {
   try {
     const actor = req.user;
-    const { threadId, content } = req.body || {};
+    const threads = await threadsForActor(actor);
+    let count = 0;
+    let preview = null;
+    let latestAt = 0;
+    let threadId = null;
 
-    if (!content || typeof content !== "string") {
-      return res.status(400).json({ ok: false, msg: "Message content is required" });
+    for (const thread of threads) {
+      const since = readerLastReadAt(thread, actor._id);
+      const filter = unreadMessageFilter(actor, thread, since);
+      const n = await SupportMessage.countDocuments(filter);
+      if (n <= 0) continue;
+      count += n;
+      const last = await SupportMessage.findOne(filter).sort({ createdAt: -1 });
+      if (last) {
+        const t = last.createdAt?.getTime?.() || 0;
+        if (t >= latestAt) {
+          latestAt = t;
+          preview = formatSupportMessage(last);
+          threadId = thread._id.toString();
+        }
+      }
     }
 
-    const trimmed = content.trim();
-    if (trimmed.length < 1 || trimmed.length > 2000) {
-      return res.status(400).json({ ok: false, msg: "Message must be 1–2000 characters" });
+    return res.json({
+      ok: true,
+      count,
+      preview,
+      threadId: threadId || undefined,
+      at: latestAt || undefined,
+    });
+  } catch (err) {
+    console.error("getUnread error:", err);
+    return res.status(500).json({ ok: false, msg: "Could not load unread support" });
+  }
+};
+
+exports.markThreadRead = async (req, res) => {
+  try {
+    const access = await canAccessThread(req.user, req.params.id);
+    if (!access.ok) return res.status(403).json({ ok: false, msg: access.msg });
+
+    await markThreadReadDoc(access.thread, req.user._id);
+    return res.json({ ok: true, msg: "Marked as read" });
+  } catch (err) {
+    console.error("markThreadRead error:", err);
+    return res.status(500).json({ ok: false, msg: "Could not mark as read" });
+  }
+};
+
+exports.sendMessage = async (req, res) => {
+  try {
+    const path = require("path");
+    const fs = require("fs");
+    const sharp = require("sharp");
+    const { randomUploadName } = require("../utils/uploadNames");
+
+    const actor = req.user;
+    const body = req.body || {};
+    const threadId = body.threadId;
+    const rawContent = typeof body.content === "string" ? body.content : "";
+    const trimmed = rawContent.trim();
+    const imageFile = req.file;
+
+    if (!trimmed && !imageFile) {
+      return res.status(400).json({ ok: false, msg: "Message text or a screenshot is required" });
+    }
+    if (trimmed.length > 2000) {
+      return res.status(400).json({ ok: false, msg: "Message must be at most 2000 characters" });
     }
 
     let thread = null;
@@ -185,12 +316,40 @@ exports.sendMessage = async (req, res) => {
       const access = await canAccessThread(actor, threadId);
       if (!access.ok) return res.status(403).json({ ok: false, msg: access.msg });
       thread = access.thread;
-      await maybeClaimUser(actor, thread);
     }
 
     if (!thread) return res.status(404).json({ ok: false, msg: "Thread not found" });
 
-    // Re-open closed threads when anyone sends a new message
+    let imageUrl = "";
+    if (imageFile) {
+      const MAX_BYTES = 10 * 1024 * 1024;
+      if (!imageFile.buffer?.length) {
+        return res.status(400).json({ ok: false, msg: "Screenshot upload was empty" });
+      }
+      if (imageFile.buffer.length > MAX_BYTES) {
+        return res.status(400).json({ ok: false, msg: "Screenshot too large (max 10 MB)" });
+      }
+      if (!String(imageFile.mimetype || "").startsWith("image/")) {
+        return res.status(400).json({ ok: false, msg: "Screenshot must be an image" });
+      }
+
+      let webp;
+      try {
+        webp = await sharp(imageFile.buffer, { failOn: "none" })
+          .rotate()
+          .webp({ quality: 80, effort: 4 })
+          .toBuffer();
+      } catch {
+        return res.status(400).json({ ok: false, msg: "Could not process screenshot — use JPG or PNG" });
+      }
+
+      const uploadDir = path.join(__dirname, "..", "uploads");
+      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+      const filename = randomUploadName("support", "shot.webp", "image/webp", ".webp");
+      fs.writeFileSync(path.join(uploadDir, filename), webp);
+      imageUrl = `${req.protocol}://${req.get("host")}/api/media/${filename}`;
+    }
+
     if (thread.status !== "open") {
       thread.status = "open";
     }
@@ -198,11 +357,13 @@ exports.sendMessage = async (req, res) => {
     await thread.save();
 
     const senderRole = actor.role === "user" ? "user" : actor.role === "admin" ? "admin" : "staff";
+    const content = trimmed || (imageUrl ? "Screenshot attached" : "");
     const message = await SupportMessage.create({
       thread: thread._id,
       senderId: actor._id,
       senderRole,
-      content: trimmed,
+      content,
+      image: imageUrl,
     });
 
     const formattedThreadDoc = await SupportThread.findById(thread._id).populate(
@@ -248,10 +409,6 @@ exports.setThreadStatus = async (req, res) => {
     thread.status = status;
     await thread.save();
 
-    if (req.user.role === "staff") {
-      await maybeClaimUser(req.user, thread);
-    }
-
     const populated = await SupportThread.findById(thread._id).populate(
       "user",
       "fname lname name email assignedStaff"
@@ -273,5 +430,99 @@ exports.setThreadStatus = async (req, res) => {
   } catch (err) {
     console.error("setThreadStatus error:", err);
     return res.status(500).json({ ok: false, msg: "Could not update ticket" });
+  }
+};
+
+exports.editMessage = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ ok: false, msg: "Admin access required" });
+    }
+
+    const content = typeof req.body?.content === "string" ? req.body.content.trim() : "";
+    if (!content) {
+      return res.status(400).json({ ok: false, msg: "Message text is required" });
+    }
+    if (content.length > 2000) {
+      return res.status(400).json({ ok: false, msg: "Message must be at most 2000 characters" });
+    }
+
+    const message = await SupportMessage.findById(req.params.id);
+    if (!message) return res.status(404).json({ ok: false, msg: "Message not found" });
+
+    message.content = content;
+    message.editedAt = new Date();
+    await message.save();
+
+    const populated = await SupportThread.findById(message.thread).populate(
+      "user",
+      "fname lname name email assignedStaff"
+    );
+    if (!populated) return res.status(404).json({ ok: false, msg: "Thread not found" });
+
+    const formattedThread = formatSupportThread(populated);
+    const formattedMessage = formatSupportMessage(message);
+    const userId = (populated.user?._id || populated.user).toString();
+
+    notify.supportMessageUpsert(formattedThread, formattedMessage, {
+      userId,
+      threadId: formattedThread.id,
+      edited: true,
+    });
+
+    return res.json({
+      ok: true,
+      msg: "Message updated",
+      thread: formattedThread,
+      message: formattedMessage,
+    });
+  } catch (err) {
+    console.error("editMessage error:", err);
+    return res.status(500).json({ ok: false, msg: "Could not edit message" });
+  }
+};
+
+exports.deleteMessage = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ ok: false, msg: "Admin access required" });
+    }
+
+    const message = await SupportMessage.findById(req.params.id);
+    if (!message) return res.status(404).json({ ok: false, msg: "Message not found" });
+
+    const threadId = message.thread;
+    const messageId = message._id.toString();
+    await message.deleteOne();
+
+    const populated = await SupportThread.findById(threadId).populate(
+      "user",
+      "fname lname name email assignedStaff"
+    );
+    if (!populated) {
+      return res.json({ ok: true, msg: "Message deleted" });
+    }
+
+    const lastMessage = await SupportMessage.findOne({ thread: threadId }).sort({ createdAt: -1 });
+    const formattedThread = {
+      ...formatSupportThread(populated),
+      lastMessage: lastMessage ? formatSupportMessage(lastMessage) : undefined,
+    };
+    const userId = (populated.user?._id || populated.user).toString();
+
+    notify.supportMessageDeleted(formattedThread, messageId, {
+      userId,
+      threadId: formattedThread.id,
+    });
+
+    return res.json({
+      ok: true,
+      msg: "Message deleted",
+      thread: formattedThread,
+      messageId,
+    });
+  } catch (err) {
+    console.error("deleteMessage error:", err);
+    return res.status(500).json({ ok: false, msg: "Could not delete message" });
   }
 };

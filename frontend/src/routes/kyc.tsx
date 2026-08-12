@@ -1,17 +1,14 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { ShieldCheck, Upload, CheckCircle2, XCircle, Clock, IdCard, Video, Circle, Square, RotateCcw } from "lucide-react";
+import { ShieldCheck, Upload, CheckCircle2, XCircle, Clock, IdCard } from "lucide-react";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useStore } from "@/context/store";
-import { fileToDataUrl, pickVideoMime, videoBlobToDataUrl, blobToFaceFile } from "@/services/kyc";
-
+import { fileToDataUrl } from "@/services/kyc";
 import { RequireAuth } from "@/components/auth/require-auth";
-
-const MAX_RECORD_SEC = 6;
 
 export default function KycPage() {
   return (
@@ -28,8 +25,6 @@ function KycContent() {
   const [back, setBack] = useState("");
   const [frontFile, setFrontFile] = useState<File | null>(null);
   const [backFile, setBackFile] = useState<File | null>(null);
-  const [faceVideo, setFaceVideo] = useState("");
-  const [faceBlob, setFaceBlob] = useState<Blob | null>(null);
   const [busy, setBusy] = useState(false);
 
   if (!user) return null;
@@ -55,8 +50,7 @@ function KycContent() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    const facePayload = faceBlob ? blobToFaceFile(faceBlob) : faceVideo || null;
-    const r = await submitKyc(frontFile, backFile, facePayload);
+    const r = await submitKyc(frontFile, backFile);
     setBusy(false);
     if (!r.ok) return toast.error(r.msg);
     toast.success(r.msg);
@@ -93,19 +87,12 @@ function KycContent() {
             <ImageUploadCard label="CNIC — Front" dataUrl={front} onFile={(f) => onImage("front", f)} />
             <ImageUploadCard label="CNIC — Back" dataUrl={back} onFile={(f) => onImage("back", f)} />
             <div className="md:col-span-2">
-              <FaceVideoRecorder
-                dataUrl={faceVideo}
-                onChange={(url, blob) => {
-                  setFaceVideo(url);
-                  setFaceBlob(blob ?? null);
-                }}
-              />
-            </div>
-            <div className="md:col-span-2">
               <Button type="submit" disabled={busy || !front || !back} className="w-full bg-primary text-primary-foreground">
                 <Upload className="mr-2 h-4 w-4" />Submit for verification
               </Button>
-              <p className="mt-2 text-[11px] text-muted-foreground">Only the front and back CNIC photos are required. Selfie video is optional and can be skipped.</p>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Upload clear front and back CNIC photos (JPG, PNG, or WebP · max 10 MB each). Images are compressed automatically.
+              </p>
             </div>
           </form>
         )}
@@ -161,168 +148,7 @@ function ImageUploadCard({ label, dataUrl, onFile }: { label: string; dataUrl: s
           </div>
         )}
       </div>
-      <input ref={ref} type="file" accept="image/*" className="hidden" onChange={(e) => onFile(e.target.files?.[0] || null)} />
-    </div>
-  );
-}
-
-export function FaceVideoRecorder({
-  dataUrl,
-  onChange,
-}: {
-  dataUrl: string;
-  onChange: (v: string, blob?: Blob | null) => void;
-}) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
-  const timerRef = useRef<number | null>(null);
-  const [state, setState] = useState<"idle" | "ready" | "recording" | "saving">("idle");
-  const [elapsed, setElapsed] = useState(0);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    return () => {
-      stopStream();
-      if (timerRef.current) window.clearInterval(timerRef.current);
-    };
-  }, []);
-
-  const stopStream = () => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-  };
-
-  const startCamera = async () => {
-    setErr(null);
-    try {
-      const mediaDevices = navigator.mediaDevices;
-      if (!mediaDevices || typeof mediaDevices.getUserMedia !== "function") {
-        throw new Error("Camera access is not supported in this browser or context. Please use a secure context (HTTPS or localhost) and allow camera permissions.");
-      }
-
-      const s = await mediaDevices.getUserMedia({
-        video: { width: 480, height: 360, facingMode: "user" },
-        audio: false,
-      });
-      streamRef.current = s;
-      if (videoRef.current) {
-        videoRef.current.srcObject = s;
-        videoRef.current.muted = true;
-        await videoRef.current.play().catch(() => {});
-      }
-      setState("ready");
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Camera access denied");
-    }
-  };
-
-  const startRecording = () => {
-    if (!streamRef.current) return;
-    const mime = pickVideoMime();
-    try {
-      const rec = new MediaRecorder(streamRef.current, {
-        mimeType: mime || undefined,
-        videoBitsPerSecond: 250_000,
-      });
-      recorderRef.current = rec;
-      chunksRef.current = [];
-      rec.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
-      rec.onstop = async () => {
-        setState("saving");
-        const blob = new Blob(chunksRef.current, { type: mime || "video/webm" });
-        try {
-          if (blob.size <= 0) throw new Error("Recording is empty — try again");
-          const url = await videoBlobToDataUrl(blob);
-          onChange(url, blob);
-          stopStream();
-          setState("idle");
-          setElapsed(0);
-        } catch (e) {
-          setErr(e instanceof Error ? e.message : "Could not save video");
-          setState("ready");
-        }
-      };
-      rec.start(200);
-      setState("recording");
-      setElapsed(0);
-      timerRef.current = window.setInterval(() => {
-        setElapsed((s) => {
-          const next = s + 1;
-          if (next >= MAX_RECORD_SEC) stopRecording();
-          return next;
-        });
-      }, 1000);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Recording failed");
-    }
-  };
-
-  const stopRecording = () => {
-    if (timerRef.current) {
-      window.clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    if (recorderRef.current?.state === "recording") {
-      recorderRef.current.stop();
-    }
-  };
-
-  const reset = () => {
-    onChange("", null);
-    setElapsed(0);
-    setState("idle");
-    setErr(null);
-  };
-
-  return (
-    <div className="rounded-lg border border-dashed border-border bg-background/60 p-3">
-      <Label className="text-xs flex items-center gap-1.5">
-        <Video className="h-3.5 w-3.5 text-primary" />Selfie video — turn your head left, then right (max {MAX_RECORD_SEC}s)
-      </Label>
-
-      <div className="mt-2 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-        <div className="relative aspect-video w-full overflow-hidden rounded-md border border-border bg-black">
-          {dataUrl ? (
-            <video src={dataUrl} controls className="h-full w-full object-cover" />
-          ) : (
-            <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
-          )}
-          {state === "recording" && (
-            <div className="absolute left-2 top-2 flex items-center gap-1.5 rounded-full bg-destructive/90 px-2 py-0.5 text-[11px] font-semibold text-white">
-              <Circle className="h-2.5 w-2.5 animate-pulse fill-white" />REC {elapsed}s
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-row gap-2 sm:flex-col sm:w-40">
-          {dataUrl ? (
-            <Button type="button" variant="outline" size="sm" onClick={reset} className="w-full">
-              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />Re-record
-            </Button>
-          ) : state === "idle" ? (
-            <Button type="button" size="sm" onClick={startCamera} className="w-full bg-primary text-primary-foreground">
-              <Video className="mr-1.5 h-3.5 w-3.5" />Enable camera
-            </Button>
-          ) : state === "ready" ? (
-            <Button type="button" size="sm" onClick={startRecording} className="w-full bg-destructive text-destructive-foreground">
-              <Circle className="mr-1.5 h-3.5 w-3.5 fill-current" />Start recording
-            </Button>
-          ) : state === "recording" ? (
-            <Button type="button" size="sm" onClick={stopRecording} className="w-full">
-              <Square className="mr-1.5 h-3.5 w-3.5 fill-current" />Stop
-            </Button>
-          ) : (
-            <Button type="button" size="sm" disabled className="w-full">Saving…</Button>
-          )}
-        </div>
-      </div>
-
-      {err && <p className="mt-2 text-xs text-destructive">{err}</p>}
-      <p className="mt-2 text-[11px] text-muted-foreground">
-        Optional: record a short selfie video if your camera works. You can still submit your KYC without it.
-      </p>
+      <input ref={ref} type="file" accept="image/jpeg,image/png,image/webp,image/*" className="hidden" onChange={(e) => onFile(e.target.files?.[0] || null)} />
     </div>
   );
 }

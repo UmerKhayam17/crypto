@@ -5,8 +5,9 @@ import { ArrowDown, ArrowUp, CheckCircle2, XCircle } from "lucide-react";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { Button } from "@/components/ui/button";
-import { useStore } from "@/context/store";
+import { useStore, type BinaryTrade } from "@/context/store";
 import { CountdownChip } from "@/components/binary-ticket";
+import { TradeResultViewDialog, TradeViewButton } from "@/components/trade-result-view";
 import { formatPrice } from "@/services/market-data";
 
 import { RequireAuth } from "@/components/auth/require-auth";
@@ -21,10 +22,11 @@ export default function PortfolioPage() {
 
 function PortfolioContent() {
   const {
-    user, wallet, myTrades, mySpotPositions, assets, payoutPercent,
+    user, wallet, myTrades, mySpotPositions, assets,
     closeMyTrade, closeSpotPosition,
   } = useStore();
   const [closingId, setClosingId] = useState<string | null>(null);
+  const [viewTrade, setViewTrade] = useState<BinaryTrade | null>(null);
   if (!user) return null;
 
   const active = myTrades.filter((t) => t.status === "active");
@@ -61,8 +63,9 @@ function PortfolioContent() {
             <p className="text-sm text-muted-foreground">Welcome back, {user.name}.</p>
           </div>
           <div className="text-right text-xs text-muted-foreground">
-            <div>Payout rate</div>
-            <div className="text-foreground font-mono font-semibold">+{payoutPercent.toFixed(0)}%</div>
+            <div>Win payout</div>
+            <div className="text-foreground font-mono font-semibold">By duration</div>
+            <div className="text-[10px]">Loss always −100%</div>
           </div>
         </div>
 
@@ -206,6 +209,7 @@ function PortfolioContent() {
                     <th className="px-3 py-3 text-right">Close</th>
                     <th className="px-3 py-3 text-left">Result</th>
                     <th className="px-3 py-3 text-right">P&L</th>
+                    <th className="px-3 py-3 text-right">View</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -225,6 +229,9 @@ function PortfolioContent() {
                       <td className={`px-3 py-3 text-right font-mono ${(t.pnl ?? 0) >= 0 ? "text-primary" : "text-destructive"}`}>
                         {(t.pnl ?? 0) >= 0 ? "+" : ""}${(t.pnl ?? 0).toFixed(2)}
                       </td>
+                      <td className="px-3 py-3 text-right">
+                        <TradeViewButton onClick={() => setViewTrade(t)} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -232,6 +239,16 @@ function PortfolioContent() {
             </div>
           )}
         </section>
+
+        {viewTrade && (
+          <TradeResultViewDialog
+            trade={viewTrade}
+            open={!!viewTrade}
+            onOpenChange={(o) => { if (!o) setViewTrade(null); }}
+            userName={user.name}
+            userInitials={`${user.fname?.[0] ?? ""}${user.lname?.[0] ?? ""}`.toUpperCase() || "U"}
+          />
+        )}
 
         <section className="mt-8 overflow-hidden rounded-xl border border-border/60 bg-card/60">
           <div className="border-b border-border/60 px-4 py-3 text-sm font-semibold">Spot trade history</div>

@@ -6,8 +6,8 @@ const { settleTradeDoc, settleTradeForced } = require("../utils/settleTrade");
 const { fetchMarkPrice, isAllowedTradeSymbol } = require("../utils/markPrice");
 const { debitWallet, creditWallet } = require("../utils/wallet");
 const notify = require("../utils/realtimeNotify");
+const { isValidDuration } = require("../utils/durationPayout");
 
-const VALID_DURATIONS = [15, 30, 60, 120, 300];
 let settling = false;
 
 async function getGlobalPayoutPercent() {
@@ -101,7 +101,7 @@ exports.createTrade = async (req, res) => {
     if (!Number.isFinite(stakeN) || stakeN <= 0) {
       return res.status(400).json({ ok: false, msg: "Enter a stake greater than 0" });
     }
-    if (!VALID_DURATIONS.includes(dur)) {
+    if (!isValidDuration(dur)) {
       return res.status(400).json({ ok: false, msg: "Invalid duration" });
     }
 

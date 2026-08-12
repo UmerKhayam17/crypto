@@ -1,11 +1,20 @@
 import { Link } from "react-router-dom";
-import { ArrowRight, ShieldCheck, Zap, Globe2, TrendingUp, BarChart3, Wallet } from "lucide-react";
+import { ArrowRight, ShieldCheck, Zap, Globe2, TrendingUp, BarChart3, Wallet, Gift, Crown } from "lucide-react";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { PriceTicker } from "@/components/price-ticker";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/context/store";
 import { formatPrice } from "@/services/market-data";
+
+const PROMO_REWARDS = [
+  { level: "VIP 1", deposit: "$1,000", reward: "$200" },
+  { level: "VIP 2", deposit: "$3,000", reward: "$500" },
+  { level: "VIP 3", deposit: "$5,000", reward: "$1,000" },
+  { level: "VIP 4", deposit: "$10,000", reward: "$3,000" },
+  { level: "VIP 5", deposit: "$20,000", reward: "$5,000" },
+  { level: "SVIP 6", deposit: "$50,000", reward: "$10,000" },
+];
 
 export default function IndexPage() {
   const { assets } = useStore();
@@ -108,14 +117,56 @@ export default function IndexPage() {
         </div>
       </section>
 
-      {/* CTA */}
+      {/* Rewards promo */}
       <section className="mx-auto max-w-7xl px-4 pb-20 sm:px-6">
-        <div className="overflow-hidden rounded-3xl border border-primary/30 p-10 text-center" style={{ background: "var(--gradient-emerald)" }}>
-          <h2 className="text-3xl font-bold text-primary-foreground sm:text-4xl">Get $10,000 demo funds</h2>
-          <p className="mt-3 text-primary-foreground/80">Practice with a fully simulated portfolio. No deposit required.</p>
-          <Button asChild size="lg" className="mt-6 bg-background text-foreground hover:bg-background/90">
-            <Link to="/register">Create free account</Link>
-          </Button>
+        <div
+          className="overflow-hidden rounded-3xl border border-primary/30 p-6 sm:p-10"
+          style={{ background: "var(--gradient-emerald)" }}
+        >
+          <div className="text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-background/20 text-primary-foreground">
+              <Gift className="h-6 w-6" />
+            </div>
+            <h2 className="mt-4 text-3xl font-bold text-primary-foreground sm:text-4xl">
+              Earn rewards as you grow
+            </h2>
+            <p className="mx-auto mt-3 max-w-xl text-primary-foreground/85">
+              Unlock VIP tiers with deposits and claim cash rewards — up to $10,000 on SVIP 6.
+            </p>
+          </div>
+
+          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {PROMO_REWARDS.map((tier) => (
+              <div
+                key={tier.level}
+                className="rounded-2xl border border-primary-foreground/20 bg-background/15 px-4 py-4 text-primary-foreground backdrop-blur-sm"
+              >
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <Crown className="h-4 w-4 opacity-90" />
+                  {tier.level}
+                </div>
+                <p className="mt-2 text-xs text-primary-foreground/75">Deposit {tier.deposit}</p>
+                <p className="mt-1 text-2xl font-bold tracking-tight">{tier.reward}</p>
+                <p className="text-xs text-primary-foreground/70">reward</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <Button asChild size="lg" className="bg-background text-foreground hover:bg-background/90">
+              <Link to="/recharge-activity">
+                View rewards <ArrowRight className="ml-1 h-4 w-4" />
+              </Link>
+            </Button>
+            <Button
+              asChild
+              size="lg"
+              variant="outline"
+              className="border-primary-foreground/40 bg-transparent text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
+            >
+              <Link to="/register">Create free account</Link>
+            </Button>
+          </div>
         </div>
       </section>
 

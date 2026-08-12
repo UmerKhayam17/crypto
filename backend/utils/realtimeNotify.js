@@ -74,6 +74,24 @@ exports.supportMessageUpsert = (thread, message, extra = {}) => {
   emitUserScoped("support:message", { thread, message, ...extra }, userId);
 };
 
+exports.supportMessageDeleted = (thread, messageId, extra = {}) => {
+  const userId =
+    normalizeId(thread?.userId) ||
+    normalizeId(thread?.user) ||
+    normalizeId(extra.userId);
+  if (!userId || !messageId) return;
+  emitUserScoped(
+    "support:message",
+    {
+      thread,
+      message: { id: messageId, threadId: thread?.id || normalizeId(thread), deleted: true },
+      deleted: true,
+      ...extra,
+    },
+    userId
+  );
+};
+
 exports.supportThreadUpdated = (thread, extra = {}) => {
   const userId =
     normalizeId(thread?.userId) ||

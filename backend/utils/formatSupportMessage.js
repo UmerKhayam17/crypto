@@ -14,8 +14,10 @@ function formatSupportMessage(doc) {
     threadId: normalizeId(json.threadId || json.thread) || normalizeId(json.thread?._id) || "",
     senderId: normalizeId(json.senderId || json.sender) || normalizeId(json.sender?._id) || "",
     senderRole: json.senderRole,
-    content: json.content,
+    content: json.content || "",
+    image: json.image || "",
     createdAt: toMs(json.createdAt),
+    editedAt: json.editedAt ? toMs(json.editedAt) : undefined,
   };
 }
 

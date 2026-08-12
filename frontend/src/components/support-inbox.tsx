@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Loader2, MessageSquareText, RotateCcw, Send, User as UserIcon } from "lucide-react";
+import {
+  ImagePlus,
+  Loader2,
+  MessageSquareText,
+  Pencil,
+  Send,
+  Trash2,
+  User as UserIcon,
+  X,
+} from "lucide-react";
 import { useStore } from "@/context/store";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,11 +19,16 @@ import {
   apiListSupportThreads,
   apiListSupportThreadMessages,
   apiSendSupportMessage,
-  apiSetSupportThreadStatus,
+  apiMarkSupportThreadRead,
+  apiEditSupportMessage,
+  apiDeleteSupportMessage,
   type SupportMessage,
   type SupportThread,
 } from "@/services/support";
+import { mediaUrl } from "@/lib/media-url";
 import { cn } from "@/lib/utils";
+
+const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 
 type Props = {
   /** When true, hides page-level chrome for embedding inside admin panel */
@@ -38,20 +52,31 @@ function upsertThread(list: SupportThread[], thread: SupportThread): SupportThre
 }
 
 export function SupportInbox({ embedded = false, className, onOpenCountChange }: Props) {
-  const { user, session } = useStore();
+  const { user, session, setSupportInboxFocused, refreshSupportUnread } = useStore();
   const role = session?.role;
+  const isAdmin = role === "admin";
+
+  useEffect(() => {
+    setSupportInboxFocused(true);
+    return () => setSupportInboxFocused(false);
+  }, [setSupportInboxFocused]);
 
   const [threads, setThreads] = useState<SupportThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<SupportMessage[]>([]);
-  const [filter, setFilter] = useState<"all" | "open" | "closed">("open");
   const [text, setText] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>("");
   const [sending, setSending] = useState(false);
-  const [statusBusy, setStatusBusy] = useState(false);
   const [loadingThreads, setLoadingThreads] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+  const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
   const activeRef = useRef<string | null>(null);
   useEffect(() => {
     activeRef.current = activeThreadId;
@@ -59,16 +84,11 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
 
   const isAgent = role === "admin" || role === "staff";
 
-  const visibleThreads = useMemo(() => {
-    if (!isAgent || filter === "all") return threads;
-    return threads.filter((t) => t.status === filter);
-  }, [threads, filter, isAgent]);
-
-  const openCount = useMemo(() => threads.filter((t) => t.status === "open").length, [threads]);
+  const customerCount = useMemo(() => threads.length, [threads]);
 
   useEffect(() => {
-    onOpenCountChange?.(openCount);
-  }, [openCount, onOpenCountChange]);
+    onOpenCountChange?.(customerCount);
+  }, [customerCount, onOpenCountChange]);
 
   const loadThreads = async () => {
     if (!role) return;
@@ -78,7 +98,7 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
       const list = sortThreads(data.threads ?? []);
       setThreads(list);
       if (!activeRef.current && list.length > 0) {
-        const preferred = list.find((t) => t.status === "open") || list[0];
+        const preferred = list.find((t) => t.lastMessage) || list[0];
         setActiveThreadId(preferred.id);
       }
     } catch (e) {
@@ -96,6 +116,7 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
       if (data.thread) {
         setThreads((xs) => upsertThread(xs, data.thread));
       }
+      await refreshSupportUnread();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not load messages");
     } finally {
@@ -114,6 +135,7 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
       setMessages([]);
       return;
     }
+    setEditingId(null);
     void loadMessages(activeThreadId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeThreadId]);
@@ -127,10 +149,19 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
       const message = payload.message as SupportMessage | undefined;
       if (!thread) return;
 
+      if (payload.deleted || message?.deleted) {
+        const mid = message?.id;
+        if (mid) {
+          setMessages((xs) => xs.filter((m) => m.id !== mid));
+        }
+        setThreads((xs) => upsertThread(xs, thread));
+        return;
+      }
+
       setThreads((xs) =>
         upsertThread(xs, {
           ...thread,
-          lastMessage: message || (xs.find((t) => t.id === thread.id)?.lastMessage),
+          lastMessage: message || xs.find((t) => t.id === thread.id)?.lastMessage,
         })
       );
 
@@ -138,11 +169,24 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
       if (!activeId) {
         setActiveThreadId(thread.id);
       } else if (activeId === thread.id && message && msg.type === "support:message") {
-        setMessages((xs) => (xs.some((m) => m.id === message.id) ? xs : [...xs, message]));
+        setMessages((xs) => {
+          const idx = xs.findIndex((m) => m.id === message.id);
+          if (idx >= 0) {
+            const next = [...xs];
+            next[idx] = { ...next[idx], ...message };
+            return next;
+          }
+          return [...xs, message];
+        });
+        void apiMarkSupportThreadRead(thread.id)
+          .then(() => refreshSupportUnread())
+          .catch(() => {});
+      } else if (msg.type === "support:message") {
+        void refreshSupportUnread();
       }
     });
     return () => unsub();
-  }, [role]);
+  }, [role, refreshSupportUnread]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -154,10 +198,31 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
     return user.name || `${user.fname ?? ""} ${user.lname ?? ""}`.trim();
   }, [user]);
 
+  const clearAttachment = () => {
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(null);
+    setImagePreview("");
+  };
+
+  const onPickImage = (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Screenshot must be an image");
+      return;
+    }
+    if (file.size > MAX_SCREENSHOT_BYTES) {
+      toast.error("Screenshot too large (max 10 MB)");
+      return;
+    }
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
+
   const send = async () => {
     if (!role) return;
     const content = text.trim();
-    if (!content) return;
+    if (!content && !imageFile) return;
     if (isAgent && !activeThreadId) {
       toast.error("Select a conversation to reply");
       return;
@@ -166,8 +231,12 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
     try {
       const res =
         role === "user"
-          ? await apiSendSupportMessage({ content })
-          : await apiSendSupportMessage({ threadId: activeThreadId ?? undefined, content });
+          ? await apiSendSupportMessage({ content, image: imageFile })
+          : await apiSendSupportMessage({
+              threadId: activeThreadId ?? undefined,
+              content,
+              image: imageFile,
+            });
 
       const sentThread = res.thread;
       const sentMessage = res.message;
@@ -177,6 +246,7 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
       }
 
       setText("");
+      clearAttachment();
       setThreads((xs) => upsertThread(xs, { ...sentThread, lastMessage: sentMessage }));
       if (sentThread.id !== activeRef.current) setActiveThreadId(sentThread.id);
       setMessages((xs) => (xs.some((m) => m.id === sentMessage.id) ? xs : [...xs, sentMessage]));
@@ -187,17 +257,42 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
     }
   };
 
-  const setStatus = async (status: "open" | "closed") => {
-    if (!activeThreadId || !isAgent) return;
-    setStatusBusy(true);
+  const saveEdit = async () => {
+    if (!editingId || !isAdmin) return;
+    const content = editText.trim();
+    if (!content) {
+      toast.error("Message text is required");
+      return;
+    }
+    setEditBusy(true);
     try {
-      const data = await apiSetSupportThreadStatus(activeThreadId, status);
-      if (data.thread) setThreads((xs) => upsertThread(xs, data.thread!));
-      toast.success(data.msg || (status === "closed" ? "Ticket closed" : "Ticket reopened"));
+      const res = await apiEditSupportMessage(editingId, content);
+      if (res.message) {
+        setMessages((xs) => xs.map((m) => (m.id === res.message!.id ? { ...m, ...res.message! } : m)));
+      }
+      if (res.thread) setThreads((xs) => upsertThread(xs, res.thread!));
+      setEditingId(null);
+      toast.success("Message updated");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not update ticket");
+      toast.error(e instanceof Error ? e.message : "Could not edit message");
     } finally {
-      setStatusBusy(false);
+      setEditBusy(false);
+    }
+  };
+
+  const removeMessage = async (messageId: string) => {
+    if (!isAdmin) return;
+    if (!window.confirm("Delete this message? This cannot be undone.")) return;
+    setDeleteBusyId(messageId);
+    try {
+      const res = await apiDeleteSupportMessage(messageId);
+      setMessages((xs) => xs.filter((m) => m.id !== messageId));
+      if (res.thread) setThreads((xs) => upsertThread(xs, res.thread!));
+      toast.success("Message deleted");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not delete message");
+    } finally {
+      setDeleteBusyId(null);
     }
   };
 
@@ -222,7 +317,7 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
             </p>
           </div>
           <div className="text-xs text-muted-foreground">
-            {isAgent ? `${openCount} open` : `Signed in as ${activeUserName}`}
+            {isAgent ? `${customerCount} customers` : `Signed in as ${activeUserName}`}
           </div>
         </div>
       )}
@@ -232,56 +327,45 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
           <div>
             <div className="text-lg font-semibold tracking-tight">Customer support</div>
             <p className="text-xs text-muted-foreground">
-              Live inbox for assigned and unassigned customers. Replying claims unassigned users.
+              {role === "staff"
+                ? "All assigned customers appear here."
+                : "All customers appear here. Only admin can edit or delete messages."}
             </p>
           </div>
-          <div className="text-xs font-mono text-muted-foreground">{openCount} open</div>
+          <div className="text-xs font-mono text-muted-foreground">{customerCount} customers</div>
         </div>
       )}
 
       <div className="grid flex-1 min-h-0 grid-cols-1 md:grid-cols-[300px_1fr] gap-3 md:gap-4">
         <aside className="rounded-xl border border-border/60 bg-card/60 overflow-hidden flex flex-col min-h-0">
-          <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between gap-2">
-            <div className="text-sm font-semibold">{isAgent ? "Tickets" : "Your conversation"}</div>
-            {isAgent && (
-              <div className="flex rounded-md border border-border/60 overflow-hidden text-[10px]">
-                {(["open", "closed", "all"] as const).map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    onClick={() => setFilter(f)}
-                    className={cn(
-                      "px-2 py-1 uppercase tracking-wide",
-                      filter === f ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/40"
-                    )}
-                  >
-                    {f}
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="px-4 py-3 border-b border-border/60">
+            <div className="text-sm font-semibold">{isAgent ? "Customers" : "Your conversation"}</div>
           </div>
           {loadingThreads ? (
             <div className="p-4 text-sm text-muted-foreground flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading…
             </div>
-          ) : visibleThreads.length === 0 ? (
+          ) : threads.length === 0 ? (
             <div className="p-4 text-sm text-muted-foreground">
               {isAgent
-                ? filter === "open"
-                  ? "No open tickets right now."
-                  : "No tickets match this filter."
+                ? role === "staff"
+                  ? "No assigned customers yet."
+                  : "No customers yet."
                 : "No messages yet. Send your first message below."}
             </div>
           ) : (
             <div className="overflow-auto flex-1 max-h-[50vh] md:max-h-none">
-              {visibleThreads.map((t) => {
+              {threads.map((t) => {
                 const active = t.id === activeThreadId;
-                const subtitle = t.lastMessage?.content
-                  ? t.lastMessage.content.length > 42
-                    ? `${t.lastMessage.content.slice(0, 42)}…`
-                    : t.lastMessage.content
-                  : "No messages yet";
+                const subtitle = t.lastMessage?.image
+                  ? t.lastMessage.content && t.lastMessage.content !== "Screenshot attached"
+                    ? `[Image] ${t.lastMessage.content.length > 34 ? t.lastMessage.content.slice(0, 34) + "…" : t.lastMessage.content}`
+                    : "[Screenshot attached]"
+                  : t.lastMessage?.content
+                    ? t.lastMessage.content.length > 42
+                      ? `${t.lastMessage.content.slice(0, 42)}…`
+                      : t.lastMessage.content
+                    : "No messages yet";
                 const name = isAgent ? t.user?.name || t.user?.email || "User" : "Support";
                 return (
                   <button
@@ -293,19 +377,9 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
                       active ? "bg-primary/10" : "hover:bg-muted/30"
                     )}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{name}</div>
-                        <div className="text-xs text-muted-foreground truncate">{subtitle}</div>
-                      </div>
-                      <div
-                        className={cn(
-                          "text-[10px] font-semibold whitespace-nowrap",
-                          t.status === "open" ? "text-primary" : "text-muted-foreground"
-                        )}
-                      >
-                        {t.status === "open" ? "OPEN" : "CLOSED"}
-                      </div>
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{name}</div>
+                      <div className="text-xs text-muted-foreground truncate">{subtitle}</div>
                     </div>
                   </button>
                 );
@@ -315,7 +389,7 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
         </aside>
 
         <section className="rounded-xl border border-border/60 bg-card/60 flex flex-col overflow-hidden min-h-[420px]">
-          <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between gap-2">
+          <div className="px-4 py-3 border-b border-border/60">
             <div className="min-w-0 text-sm font-semibold truncate">
               {!activeThreadId
                 ? "Select a conversation"
@@ -323,31 +397,6 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
                   ? "Support chat"
                   : activeThread?.user?.name || activeThread?.user?.email || "User"}
             </div>
-            {isAgent && activeThread && (
-              <div className="flex shrink-0 items-center gap-2">
-                {activeThread.status === "open" ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={statusBusy}
-                    onClick={() => void setStatus("closed")}
-                  >
-                    {statusBusy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <CheckCircle2 className="mr-1 h-3 w-3" />}
-                    Close
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={statusBusy}
-                    onClick={() => void setStatus("open")}
-                  >
-                    {statusBusy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RotateCcw className="mr-1 h-3 w-3" />}
-                    Reopen
-                  </Button>
-                )}
-              </div>
-            )}
           </div>
 
           <div className="flex-1 overflow-auto p-4 space-y-3">
@@ -357,13 +406,14 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
                   ? "Loading messages…"
                   : isAgent
                     ? activeThreadId
-                      ? "No messages in this ticket yet."
-                      : "Pick a ticket from the list to reply."
+                      ? "No messages yet. Start the conversation below."
+                      : "Pick a customer from the list to chat."
                     : "No messages yet."}
               </div>
             )}
             {messages.map((m) => {
               const mine = role === "user" ? m.senderRole === "user" : m.senderRole !== "user";
+              const isEditing = editingId === m.id;
               return (
                 <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                   <div
@@ -380,16 +430,95 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
                         {m.senderRole === "user" ? "Customer" : "Agent"}
                       </div>
                     )}
-                    <div className="whitespace-pre-wrap">{m.content}</div>
-                    <div className="mt-1 text-[10px] text-muted-foreground">
-                      {m.createdAt
-                        ? new Date(m.createdAt).toLocaleString([], {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })
-                        : ""}
+
+                    {isEditing ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          rows={3}
+                          disabled={editBusy}
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <Button size="sm" disabled={editBusy || !editText.trim()} onClick={() => void saveEdit()}>
+                            {editBusy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                            Save
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={editBusy}
+                            onClick={() => setEditingId(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {!!m.content && <div className="whitespace-pre-wrap">{m.content}</div>}
+                        {!!m.image && (
+                          <a
+                            href={mediaUrl(m.image)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={cn(
+                              "block overflow-hidden rounded-md border border-border/60",
+                              m.content ? "mt-2" : ""
+                            )}
+                          >
+                            <img
+                              src={mediaUrl(m.image)}
+                              alt="Support screenshot"
+                              className="max-h-56 w-full object-contain bg-background/80"
+                            />
+                          </a>
+                        )}
+                      </>
+                    )}
+
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+                      <span>
+                        {m.createdAt
+                          ? new Date(m.createdAt).toLocaleString([], {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : ""}
+                        {m.editedAt ? " · edited" : ""}
+                      </span>
+                      {isAdmin && !isEditing && (
+                        <span className="ml-auto flex items-center gap-1">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 hover:bg-muted hover:text-foreground"
+                            onClick={() => {
+                              setEditingId(m.id);
+                              setEditText(m.content || "");
+                            }}
+                            title="Edit message"
+                          >
+                            <Pencil className="h-3 w-3" />
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-destructive/80 hover:bg-destructive/10 hover:text-destructive"
+                            disabled={deleteBusyId === m.id}
+                            onClick={() => void removeMessage(m.id)}
+                            title="Delete message"
+                          >
+                            {deleteBusyId === m.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3 w-3" />
+                            )}
+                            Delete
+                          </button>
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -408,18 +537,54 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
                   isAgent
                     ? activeThreadId
                       ? "Type a reply… (Enter to send)"
-                      : "Select a ticket to reply"
-                    : "Type your message… (Enter to send)"
+                      : "Select a customer to reply"
+                    : "Describe your issue… You can also attach a screenshot"
                 }
                 rows={3}
                 disabled={sending || (isAgent && !activeThreadId)}
               />
-              <div className="flex items-center gap-2">
+
+              {imagePreview && (
+                <div className="relative inline-flex max-w-xs items-start gap-2 rounded-lg border border-border/60 bg-muted/30 p-2">
+                  <img src={imagePreview} alt="Screenshot preview" className="h-20 w-auto rounded object-cover" />
+                  <div className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+                    <div className="font-medium text-foreground truncate">{imageFile?.name || "Screenshot"}</div>
+                    <div>{imageFile ? `${(imageFile.size / 1024).toFixed(0)} KB` : ""}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearAttachment}
+                    className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label="Remove screenshot"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => onPickImage(e.target.files?.[0] || null)}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={sending || (isAgent && !activeThreadId)}
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <ImagePlus className="mr-1.5 h-4 w-4" />
+                  Attach Screenshot
+                </Button>
                 <Button
                   onClick={() => void send()}
                   disabled={
                     sending ||
-                    !text.trim() ||
+                    (!text.trim() && !imageFile) ||
                     (isAgent && !activeThreadId)
                   }
                   className="bg-primary text-primary-foreground hover:opacity-90"
@@ -427,8 +592,8 @@ export function SupportInbox({ embedded = false, className, onOpenCountChange }:
                   {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                   {sending ? "Sending…" : "Send"}
                 </Button>
-                {isAgent && activeThread?.status === "closed" && (
-                  <span className="text-[11px] text-muted-foreground">Sending will reopen this ticket.</span>
+                {!isAgent && (
+                  <span className="text-[11px] text-muted-foreground">JPG/PNG · max 10 MB</span>
                 )}
               </div>
             </div>

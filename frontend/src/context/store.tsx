@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { SEED_ASSETS, toBinanceSymbol, type Asset } from "@/services/market-data";
-import { DEFAULT_PAYOUT_PERCENT } from "@/constants/roles";
+import { SEED_ASSETS, toBinanceSymbol, fetchUsdForexRates, type Asset } from "@/services/market-data";
+import { DEFAULT_PAYOUT_PERCENT, VALID_TRADE_DURATIONS } from "@/constants/roles";
 import {
   apiLogin,
   apiLogout,
@@ -28,7 +28,7 @@ import {
   apiUpdateUserProfile,
   apiDeleteUser,
 } from "@/services/users";
-import { apiApproveKyc, apiRejectKyc, apiSubmitKyc, blobToFaceFile, dataUrlToFile } from "@/services/kyc";
+import { apiApproveKyc, apiRejectKyc, apiSubmitKyc } from "@/services/kyc";
 import { apiGetPublicSettings, apiUpdateSettings } from "@/services/settings";
 import {
   apiApproveDeposit,
@@ -58,6 +58,12 @@ import {
 } from "@/services/trades";
 import { apiCloseSpot, apiListMySpot, apiListSpot, apiOpenSpot } from "@/services/spot";
 import { subscribeRealtime } from "@/services/realtime";
+import { toast } from "sonner";
+import {
+  apiGetSupportUnread,
+  type SupportMessage,
+  type SupportThread,
+} from "@/services/support";
 
 /* ---------------- Types ---------------- */
 export type Role = "user" | "admin" | "staff";
@@ -239,6 +245,10 @@ type Store = {
   register: (input: RegisterInput) => Promise<{ ok: boolean; msg: string }>;
   logout: () => void;
   authReady: boolean;
+  supportUnread: number;
+  clearSupportUnread: () => void;
+  setSupportInboxFocused: (focused: boolean) => void;
+  refreshSupportUnread: () => Promise<void>;
 
   // data (current user view)
   wallet: Wallet;
@@ -249,7 +259,7 @@ type Store = {
   payoutPercent: number;            // admin-set, default 85
 
   // KYC
-  submitKyc: (cnicFront: File | null, cnicBack: File | null, face?: string | Blob | File | null) => Promise<{ ok: boolean; msg: string }>;
+  submitKyc: (cnicFront: File | null, cnicBack: File | null) => Promise<{ ok: boolean; msg: string }>;
 
   // user actions
   placeBinaryTrade: (t: PlaceBinaryInput) => Promise<{ ok: boolean; msg: string }>;
@@ -472,6 +482,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [assets, setAssets] = useState<Asset[]>(SEED_ASSETS);
   const [hydrated, setHydrated] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [supportUnread, setSupportUnread] = useState(0);
+  const supportInboxFocusRef = useRef(0);
+  const supportLoginNotifyRef = useRef<string | null>(null);
 
   const assetsRef = useRef<Asset[]>(assets);
   useEffect(() => { assetsRef.current = assets; }, [assets]);
@@ -605,16 +618,39 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     const sim = setInterval(() => {
       setAssets((prev) => prev.map((a) => {
-        if (a.category === "crypto") return a;
+        if (a.category === "crypto" || a.category === "forex") return a;
         const drift = (Math.random() - 0.5) * 0.002;
         return { ...a, price: Number((a.price * (1 + drift)).toFixed(4)), change24h: Number((a.change24h + drift * 5).toFixed(2)) };
       }));
     }, 3000);
 
+    const refreshForex = async () => {
+      try {
+        const rates = await fetchUsdForexRates();
+        if (!Object.keys(rates).length) return;
+        setAssets((prev) =>
+          prev.map((a) => {
+            if (a.category !== "forex") return a;
+            const next = rates[a.symbol];
+            if (!(next > 0)) return a;
+            return {
+              ...a,
+              price: next,
+            };
+          })
+        );
+      } catch {
+        // keep last known forex prices
+      }
+    };
+    void refreshForex();
+    const forexPoll = setInterval(() => { void refreshForex(); }, 60_000);
+
     return () => {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       clearInterval(flush);
       clearInterval(sim);
+      clearInterval(forexPoll);
       ws?.close();
     };
   }, []);
@@ -696,24 +732,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     apiLogout();
     setSession(null);
+    setSupportUnread(0);
+    supportLoginNotifyRef.current = null;
+    supportInboxFocusRef.current = 0;
   };
 
   /* ---------- KYC ---------- */
-  const submitKyc: Store["submitKyc"] = async (cnicFront, cnicBack, face) => {
+  const submitKyc: Store["submitKyc"] = async (cnicFront, cnicBack) => {
     if (!user) return { ok: false, msg: "Please sign in first" };
     if (!cnicFront || !cnicBack) return { ok: false, msg: "Front and back CNIC photos are required" };
 
     try {
-      let faceFile: File | undefined;
-      if (face instanceof File) {
-        faceFile = face;
-      } else if (face instanceof Blob) {
-        faceFile = blobToFaceFile(face);
-      } else if (typeof face === "string" && face.startsWith("data:")) {
-        faceFile = dataUrlToFile(face, "face");
-      }
-
-      const data = await apiSubmitKyc({ cnicFront, cnicBack, face: faceFile });
+      const data = await apiSubmitKyc({ cnicFront, cnicBack });
       if (!data.ok) return { ok: false, msg: data.msg || "Could not submit KYC" };
 
       if (data.user) {
@@ -786,7 +816,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!a) return { ok: false, msg: "Unknown market" };
     if (!(stake > 0)) return { ok: false, msg: "Enter a stake greater than 0" };
     if (stake > wallet.cashUSDT) return { ok: false, msg: `Insufficient balance (have $${wallet.cashUSDT.toFixed(2)})` };
-    if (![15, 30, 60, 120, 300].includes(durationSec)) return { ok: false, msg: "Invalid duration" };
+    if (!VALID_TRADE_DURATIONS.includes(durationSec as typeof VALID_TRADE_DURATIONS[number])) {
+      return { ok: false, msg: "Invalid duration" };
+    }
     try {
       const data = await apiCreateTrade({
         symbol,
@@ -1448,15 +1480,127 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           applyWallet(payload);
           break;
         }
+        case "support:message": {
+          const message = payload.message as SupportMessage | undefined;
+          const thread = payload.thread as SupportThread | undefined;
+          if (!message || !session?.userId) break;
+          // Ignore deletes / edits for unread toast (inbox sync handles them)
+          if (payload.deleted || message.deleted || payload.edited) break;
+          // Ignore echo of our own outbound messages
+          if (message.senderId === session.userId) break;
+
+          // Inbox open: live UI handles it — skip badge/toast noise
+          if (supportInboxFocusRef.current > 0) break;
+
+          setSupportUnread((n) => n + 1);
+          const preview = message.image && (!message.content || message.content === "Screenshot attached")
+            ? "Screenshot attached"
+            : (message.content || "New message").slice(0, 100);
+
+          if (session.role === "user") {
+            toast.message("New support reply", {
+              description: preview,
+              duration: 6000,
+            });
+          } else {
+            const who = thread?.user?.name || thread?.user?.email || "Customer";
+            toast.message(`Support message · ${who}`, {
+              description: preview,
+              duration: 6000,
+            });
+          }
+          break;
+        }
+        case "support:thread": {
+          // status changes — no toast spam
+          break;
+        }
         default:
           break;
       }
     });
-  }, [hydrated, session?.userId, authReady, loadUsers]);
+  }, [hydrated, session?.userId, session?.role, authReady, loadUsers]);
+
+  /* Restore unread support badge + toast on login / session restore (desktop & mobile) */
+  useEffect(() => {
+    if (!hydrated || !authReady || !session?.userId) {
+      setSupportUnread(0);
+      return;
+    }
+
+    let cancelled = false;
+    const userId = session.userId;
+    const role = session.role;
+
+    apiGetSupportUnread()
+      .then((res) => {
+        if (cancelled) return;
+        const count = Math.max(0, Number(res.count) || 0);
+        setSupportUnread(count);
+
+        // Notify once per login session until messages are read
+        if (
+          count > 0 &&
+          supportInboxFocusRef.current <= 0 &&
+          supportLoginNotifyRef.current !== userId
+        ) {
+          supportLoginNotifyRef.current = userId;
+          const previewRaw = res.preview;
+          const preview =
+            previewRaw?.image && (!previewRaw.content || previewRaw.content === "Screenshot attached")
+              ? "Screenshot attached"
+              : (previewRaw?.content || "You have unread support messages").slice(0, 100);
+
+          if (role === "user") {
+            toast.message(
+              count === 1 ? "Unread support reply" : `${count} unread support messages`,
+              { description: preview, duration: 8000 }
+            );
+          } else {
+            toast.message(
+              count === 1 ? "Unread customer message" : `${count} unread support messages`,
+              { description: preview, duration: 8000 }
+            );
+          }
+        }
+
+        if (count === 0) {
+          supportLoginNotifyRef.current = userId;
+        }
+      })
+      .catch(() => {
+        /* keep local badge */
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, authReady, session?.userId, session?.role]);
+
+  const clearSupportUnread = useCallback(() => setSupportUnread(0), []);
+  const refreshSupportUnread = useCallback(async () => {
+    if (!session?.userId) {
+      setSupportUnread(0);
+      return;
+    }
+    try {
+      const res = await apiGetSupportUnread();
+      setSupportUnread(Math.max(0, Number(res.count) || 0));
+    } catch {
+      /* keep current */
+    }
+  }, [session?.userId]);
+  const setSupportInboxFocused = useCallback((focused: boolean) => {
+    supportInboxFocusRef.current = Math.max(0, supportInboxFocusRef.current + (focused ? 1 : -1));
+    if (focused) {
+      void refreshSupportUnread();
+    }
+  }, [refreshSupportUnread]);
 
   const value: Store = {
     session, user, staffMe, isAdmin: !!isAdmin, isStaff, isStaffOrAdmin,
     login, register, logout, authReady,
+    supportUnread, clearSupportUnread, setSupportInboxFocused, refreshSupportUnread,
     wallet, myTrades, assets, payoutPercent, spotFeePercent,
     submitKyc, placeBinaryTrade, closeMyTrade, syncMyWallet,
     mySpotPositions, allSpotPositions: spotPositions,

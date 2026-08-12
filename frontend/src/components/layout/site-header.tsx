@@ -16,6 +16,7 @@ import {
   ChartCandlestick,
   BadgeDollarSign,
   CircleUserRound,
+  Bell,
   MessageSquareText,
   Crown,
 } from "lucide-react";
@@ -52,8 +53,8 @@ function KycPill({ status }: { status: "none" | "pending" | "approved" | "reject
 }
 
 export function SiteHeader() {
-  const { pathname } = useLocation();
-  const { user, isStaffOrAdmin, isAdmin, staffMe, logout } = useStore();
+  const { pathname, search } = useLocation();
+  const { user, isStaffOrAdmin, isAdmin, staffMe, logout, supportUnread } = useStore();
   const navigate = useNavigate();
 
   const initials = user
@@ -62,12 +63,16 @@ export function SiteHeader() {
       ? (isAdmin ? "A" : staffMe?.name?.[0]?.toUpperCase() ?? "S")
       : "";
   const profilePath = user ? "/profile" : isStaffOrAdmin ? "/admin" : "/login";
+  const supportPath = isStaffOrAdmin ? "/admin?section=support" : "/support";
+  const supportActive =
+    pathname === "/support" ||
+    (pathname.startsWith("/admin") && new URLSearchParams(search).get("section") === "support");
   const mobileTabs = [
     { to: "/", label: "Home", Icon: House, active: pathname === "/" },
     { to: "/markets", label: "Market", Icon: ChartCandlestick, active: pathname === "/markets" },
     { to: "/trade", label: "Trades", Icon: BadgeDollarSign, active: pathname === "/trade" || pathname === "/portfolio" },
     { to: profilePath, label: "Profile", Icon: CircleUserRound, active: pathname === profilePath || pathname === "/recharge-activity" || pathname === "/deposit" || pathname === "/withdraw" || pathname === "/kyc" || (profilePath === "/admin" && pathname.startsWith("/admin")) },
-    { to: "/support", label: "Support", Icon: MessageSquareText, active: pathname === "/support" },
+    { to: supportPath, label: "Support", Icon: MessageSquareText, active: supportActive },
   ];
 
   return (
@@ -99,6 +104,21 @@ export function SiteHeader() {
 
         <div className="flex items-center gap-2">
           <ThemeToggle />
+          {(user || isStaffOrAdmin) && (
+            <Link
+              to={supportPath}
+              className="relative rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              title="Notifications"
+              aria-label="Notifications"
+            >
+              <Bell className="h-5 w-5" />
+              {supportUnread > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                  {supportUnread > 9 ? "9+" : supportUnread}
+                </span>
+              )}
+            </Link>
+          )}
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -123,6 +143,17 @@ export function SiteHeader() {
                   <Link to="/profile" className="flex items-center gap-2"><UserIcon className="h-4 w-4" />My profile</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
+                  <Link to={supportPath} className="flex items-center gap-2">
+                    <Bell className="h-4 w-4" />
+                    Notifications
+                    {supportUnread > 0 && (
+                      <span className="ml-auto rounded-full bg-destructive/15 px-1.5 text-[10px] font-bold text-destructive">
+                        {supportUnread > 9 ? "9+" : supportUnread}
+                      </span>
+                    )}
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
                   <Link to="/kyc" className="flex items-center gap-2"><ShieldCheck className="h-4 w-4" />KYC verification</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
@@ -136,9 +167,6 @@ export function SiteHeader() {
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link to="/portfolio" className="flex items-center gap-2"><BarChart3 className="h-4 w-4" />Trade history</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/support" className="flex items-center gap-2"><MessageSquareText className="h-4 w-4" />Customer support</Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => { logout(); navigate("/"); }} className="text-destructive focus:text-destructive">
@@ -166,7 +194,15 @@ export function SiteHeader() {
                   <Link to="/admin" className="flex items-center gap-2"><Shield className="h-4 w-4" />Admin panel</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link to="/support" className="flex items-center gap-2"><MessageSquareText className="h-4 w-4" />Customer support</Link>
+                  <Link to={supportPath} className="flex items-center gap-2">
+                    <Bell className="h-4 w-4" />
+                    Notifications
+                    {supportUnread > 0 && (
+                      <span className="ml-auto rounded-full bg-destructive/15 px-1.5 text-[10px] font-bold text-destructive">
+                        {supportUnread > 9 ? "9+" : supportUnread}
+                      </span>
+                    )}
+                  </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => { logout(); navigate("/"); }} className="text-destructive focus:text-destructive">
@@ -190,15 +226,22 @@ export function SiteHeader() {
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
         <div className="grid grid-cols-5 px-1 py-1.5">
-          {mobileTabs.map(({ to, label, Icon, active }) => (
+          {mobileTabs.map(({ to, label, Icon, active, badge }) => (
             <Link
               key={`${to}-${label}`}
               to={to}
-              className={`flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] font-medium transition-colors ${
+              className={`relative flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] font-medium transition-colors ${
                 active ? "text-primary" : "text-muted-foreground"
               }`}
             >
-              <Icon className={`h-5 w-5 ${active ? "text-primary" : "text-muted-foreground"}`} />
+              <span className="relative">
+                <Icon className={`h-5 w-5 ${active ? "text-primary" : "text-muted-foreground"}`} />
+                {!!badge && badge > 0 && (
+                  <span className="absolute -right-2 -top-1 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-destructive px-0.5 text-[8px] font-bold text-destructive-foreground">
+                    {badge > 9 ? "9+" : badge}
+                  </span>
+                )}
+              </span>
               <span>{label}</span>
             </Link>
           ))}

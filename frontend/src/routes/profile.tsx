@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   User as UserIcon, Mail, Phone, Globe, ShieldCheck, Wallet,
   ArrowUp, ArrowDown, CheckCircle2, XCircle, Clock, AlertCircle, Crown,
@@ -7,8 +7,9 @@ import {
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { Button } from "@/components/ui/button";
-import { useStore } from "@/context/store";
+import { useStore, type BinaryTrade } from "@/context/store";
 import { CountdownChip } from "@/components/binary-ticket";
+import { TradeResultViewDialog, TradeViewButton } from "@/components/trade-result-view";
 import { formatPrice } from "@/services/market-data";
 import { COUNTRIES } from "@/constants/countries";
 
@@ -23,7 +24,8 @@ export default function ProfilePage() {
 }
 
 function ProfileContent() {
-  const { user, wallet, myTrades, myDeposits, assets, payoutPercent } = useStore();
+  const { user, wallet, myTrades, myDeposits, assets } = useStore();
+  const [viewTrade, setViewTrade] = useState<BinaryTrade | null>(null);
 
   const countryName = useMemo(
     () => COUNTRIES.find((c) => c.code === user?.country)?.name ?? user?.country ?? "—",
@@ -71,7 +73,8 @@ function ProfileContent() {
               <Row icon={Mail} label="Email" value={user.email} />
               <Row icon={Phone} label="Phone" value={user.phone || "—"} />
               <Row icon={Globe} label="Country" value={countryName} />
-              <Row icon={Wallet} label="Payout rate" value={`+${payoutPercent.toFixed(0)}%`} accent="text-primary" />
+              <Row icon={Wallet} label="Win payout" value="By duration" accent="text-primary" />
+              <Row icon={Wallet} label="Loss on lose" value="−100% stake" accent="text-destructive" />
             </dl>
             <div className="mt-5 flex flex-wrap gap-2">
               <Button asChild size="sm" variant="outline"><Link to="/kyc"><ShieldCheck className="mr-1 h-3.5 w-3.5" />KYC</Link></Button>
@@ -145,6 +148,7 @@ function ProfileContent() {
                     <th className="px-3 py-3 text-right">Close</th>
                     <th className="px-3 py-3 text-left">Result</th>
                     <th className="px-3 py-3 text-right">P&L</th>
+                    <th className="px-3 py-3 text-right">View</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -163,6 +167,9 @@ function ProfileContent() {
                       </td>
                       <td className={`px-3 py-3 text-right font-mono ${(t.pnl ?? 0) >= 0 ? "text-primary" : "text-destructive"}`}>
                         {(t.pnl ?? 0) >= 0 ? "+" : ""}${(t.pnl ?? 0).toFixed(2)}
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <TradeViewButton onClick={() => setViewTrade(t)} />
                       </td>
                     </tr>
                   ))}
@@ -196,6 +203,15 @@ function ProfileContent() {
           )}
         </section>
       </main>
+      {viewTrade && (
+        <TradeResultViewDialog
+          trade={viewTrade}
+          open={!!viewTrade}
+          onOpenChange={(o) => { if (!o) setViewTrade(null); }}
+          userName={user.name}
+          userInitials={`${user.fname?.[0] ?? ""}${user.lname?.[0] ?? ""}`.toUpperCase() || "U"}
+        />
+      )}
     </Shell>
   );
 }
@@ -258,7 +274,7 @@ function KycPanel({ status, reason, submittedAt, reviewedAt }:
   { status: "none" | "pending" | "approved" | "rejected"; reason?: string; submittedAt?: number; reviewedAt?: number }) {
   const Steps = (
     <ol className="mt-4 grid gap-2 sm:grid-cols-3">
-      <Step active label="Submit" desc="Upload CNIC + selfie video" done={status !== "none"} />
+      <Step active label="Submit" desc="Upload CNIC front & back" done={status !== "none"} />
       <Step active={status === "pending" || status === "approved" || status === "rejected"} label="Review" desc="Admin checks documents" done={status === "approved" || status === "rejected"} />
       <Step active={status === "approved"} label="Approved" desc="Trade & deposit unlocked" done={status === "approved"} failed={status === "rejected"} />
     </ol>

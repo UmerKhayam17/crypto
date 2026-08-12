@@ -13,6 +13,19 @@ const CRYPTO_SYMBOLS = new Set(
   ]
 );
 
+const FOREX_SYMBOLS = new Set(
+  [
+    "USD/EUR", "USD/GBP", "USD/JPY", "USD/CHF", "USD/AUD", "USD/CAD", "USD/NZD",
+    "USD/CNY", "USD/HKD", "USD/SGD", "USD/INR", "USD/PKR", "USD/TRY", "USD/ZAR",
+    "USD/MXN", "USD/BRL", "USD/RUB", "USD/PLN", "USD/SEK", "USD/NOK", "USD/DKK",
+    "USD/THB", "USD/IDR", "USD/MYR", "USD/KRW", "USD/AED", "USD/SAR", "USD/UZS",
+  ]
+);
+
+/** @type {{ at: number, rates: Record<string, number> } | null} */
+let forexCache = null;
+const FOREX_CACHE_MS = 60_000;
+
 function toBinanceSymbol(symbol) {
   if (!symbol || typeof symbol !== "string") return null;
   if (!CRYPTO_SYMBOLS.has(symbol)) return null;
@@ -20,12 +33,29 @@ function toBinanceSymbol(symbol) {
 }
 
 function isAllowedTradeSymbol(symbol) {
-  return CRYPTO_SYMBOLS.has(symbol);
+  return CRYPTO_SYMBOLS.has(symbol) || FOREX_SYMBOLS.has(symbol);
+}
+
+function forexQuote(symbol) {
+  if (!FOREX_SYMBOLS.has(symbol)) return null;
+  return symbol.slice(4);
+}
+
+async function fetchForexUsdRates() {
+  if (forexCache && Date.now() - forexCache.at < FOREX_CACHE_MS) {
+    return forexCache.rates;
+  }
+  const res = await fetch("https://open.er-api.com/v6/latest/USD");
+  if (!res.ok) throw new Error(`Forex HTTP ${res.status}`);
+  const data = await res.json();
+  if (data.result !== "success" || !data.rates) throw new Error("Forex payload invalid");
+  forexCache = { at: Date.now(), rates: data.rates };
+  return data.rates;
 }
 
 /**
- * Fetch live mark price from Binance. Falls back to hint only if oracle fails.
- * Never trusts client as primary source.
+ * Fetch live mark price from Binance (crypto) or open.er-api (USD forex).
+ * Falls back to hint only if oracle fails.
  */
 async function fetchMarkPrice(symbol, fallbackHint) {
   const binance = toBinanceSymbol(symbol);
@@ -41,6 +71,18 @@ async function fetchMarkPrice(symbol, fallbackHint) {
       // fall through
     }
   }
+
+  const quote = forexQuote(symbol);
+  if (quote) {
+    try {
+      const rates = await fetchForexUsdRates();
+      const price = Number(rates[quote]);
+      if (Number.isFinite(price) && price > 0) return price;
+    } catch {
+      // fall through
+    }
+  }
+
   const hint = Number(fallbackHint);
   if (Number.isFinite(hint) && hint > 0) {
     const drift = (Math.random() - 0.5) * 0.0005;
@@ -51,6 +93,7 @@ async function fetchMarkPrice(symbol, fallbackHint) {
 
 module.exports = {
   CRYPTO_SYMBOLS,
+  FOREX_SYMBOLS,
   toBinanceSymbol,
   isAllowedTradeSymbol,
   fetchMarkPrice,

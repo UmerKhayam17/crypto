@@ -14,6 +14,21 @@ const supportThreadSchema = new mongoose.Schema(
       default: "open",
       index: true,
     },
+    /** Per-reader last-seen cursor so unread survives logout / device switch */
+    reads: [
+      {
+        reader: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true,
+        },
+        at: {
+          type: Date,
+          required: true,
+          default: Date.now,
+        },
+      },
+    ],
   },
   {
     timestamps: true,

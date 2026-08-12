@@ -24,10 +24,12 @@ import { formatPrice } from "@/services/market-data";
 import { AdminTable, type AdminColumn } from "@/components/admin-table";
 import { COUNTRIES } from "@/constants/countries";
 import { getApiUrl } from "@/lib/api-url";
-import { mediaUrl, isMediaVideo } from "@/lib/media-url";
+import { mediaUrl } from "@/lib/media-url";
 import { apiListVipClaims, type VipClaim } from "@/services/vip";
 import { SupportInbox } from "@/components/support-inbox";
 import { apiListSupportThreads } from "@/services/support";
+import { TRADE_DURATIONS, profitPercentForDuration } from "@/constants/roles";
+import { TradeResultViewDialog, TradeViewButton } from "@/components/trade-result-view";
 
 function getImageUrl(imagePath: string | undefined): string {
   if (!imagePath) return "";
@@ -61,6 +63,7 @@ function AdminDashboard() {
     adminSetWalletAddress, adminSetPayoutPercent, adminSetSpotFeePercent, adminApproveDeposit, adminRejectDeposit,
     adminApproveWithdrawal, adminRejectWithdrawal,
     logout, auditLog, auditLogFor, adminClearAuditLog,
+    supportUnread,
   } = useStore();
   const nav = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -103,6 +106,7 @@ function AdminDashboard() {
   const [vipClaims, setVipClaims] = useState<VipClaim[]>([]);
   const [vipLoading, setVipLoading] = useState(false);
   const [openSupportCount, setOpenSupportCount] = useState(0);
+  const [viewTrade, setViewTrade] = useState<BinaryTrade | null>(null);
   const [, startTransition] = useTransition();
 
   // Persist trade filter across refreshes
@@ -204,7 +208,7 @@ function AdminDashboard() {
     { key: "kyc", label: "KYC review", icon: ShieldCheck, badge: pendingKyc },
     { key: "deposits", label: "Deposits", icon: Wallet, badge: pendingDeposits },
     { key: "withdrawals", label: "Withdrawals", icon: ArrowDownToLine, badge: pendingWithdrawals },
-    { key: "support", label: "Support", icon: MessageSquareText, badge: openSupportCount },
+    { key: "support", label: "Support", icon: MessageSquareText, badge: Math.max(openSupportCount, supportUnread) },
     { key: "vip", label: "VIP rewards", icon: Crown },
     { key: "trades", label: "Trades", icon: Activity, badge: activeTrades },
   ] as const;
@@ -320,7 +324,7 @@ function AdminDashboard() {
                 <div className="mt-6 grid gap-4 lg:grid-cols-2">
                   <QuickCard icon={Wallet} title="Deposit queue" value={pendingDeposits} sub="awaiting verification" onClick={() => setSection("deposits")} />
                   <QuickCard icon={ArrowDownToLine} title="Withdrawal queue" value={pendingWithdrawals} sub="awaiting payout" onClick={() => setSection("withdrawals")} />
-                  <QuickCard icon={MessageSquareText} title="Support inbox" value={openSupportCount} sub="open tickets" onClick={() => setSection("support")} />
+                  <QuickCard icon={MessageSquareText} title="Support inbox" value={Math.max(openSupportCount, supportUnread)} sub={supportUnread > 0 ? "new messages" : "customers"} onClick={() => setSection("support")} />
                   <QuickCard icon={TrendingUp} title="Trades total" value={panelTrades.length} sub="placed all-time" onClick={() => setSection("trades")} />
                 </div>
               </>
@@ -462,22 +466,17 @@ function AdminDashboard() {
                             </div>
                             <KycPill status={u.kyc.status} />
                           </div>
-                          <div className="mt-3 grid grid-cols-3 gap-2">
-                            {(["cnicFront", "cnicBack", "face"] as const).map((k) => {
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            {(["cnicFront", "cnicBack"] as const).map((k) => {
                               const rawSrc = u.kyc[k];
                               const src = getImageUrl(rawSrc);
-                              const isVideo = isMediaVideo(rawSrc) || isMediaVideo(src);
-                              const label = k === "face" ? "Selfie" : k === "cnicFront" ? "Front" : "Back";
+                              const label = k === "cnicFront" ? "Front" : "Back";
                               return (
                                 <div key={k}>
                                   {src ? (
-                                    isVideo ? (
-                                      <video src={src} controls className="h-20 w-full rounded border border-border object-cover bg-black" />
-                                    ) : (
-                                      <a href={src} target="_blank" rel="noreferrer">
-                                        <img src={src} alt={k} className="h-20 w-full rounded border border-border object-cover" />
-                                      </a>
-                                    )
+                                    <a href={src} target="_blank" rel="noreferrer">
+                                      <img src={src} alt={k} className="h-20 w-full rounded border border-border object-cover" />
+                                    </a>
                                   ) : <div className="h-20 rounded border border-dashed border-border" />}
                                   <div className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground text-center">{label}</div>
                                 </div>
@@ -549,13 +548,23 @@ function AdminDashboard() {
                       ? <span className="text-xs text-muted-foreground">{t.outcomeSource}</span>
                       : <span className="text-xs text-muted-foreground">—</span>
                 },
+                { key: "view", header: "View", align: "right", cell: (t) =>
+                  t.status === "active"
+                    ? <span className="text-xs text-muted-foreground">—</span>
+                    : <TradeViewButton onClick={() => setViewTrade(t)} />
+                },
                 { key: "act", header: "Profit / Loss", align: "right", cell: (t) => {
                   const tradeUser = panelUsers.find((u) => u.id === t.userId);
                   return (
                     <TradeProfitLossControl
                       trade={t}
-                      defaultProfitPercent={t.customProfitPercent ?? tradeUser?.profitPercent ?? payoutPercent}
-                      defaultLossPercent={t.customLossPercent ?? tradeUser?.lossPercent ?? 100}
+                      defaultProfitPercent={
+                        t.customProfitPercent ??
+                        profitPercentForDuration(t.durationSec) ??
+                        tradeUser?.profitPercent ??
+                        payoutPercent
+                      }
+                      defaultLossPercent={t.customLossPercent ?? 100}
                       onPlan={(planned, profitPct, lossPct) =>
                         runAction(`plan:${t.id}`, () => adminPlanTrade(t.id, planned, profitPct, lossPct), "Trade outcome planned")
                       }
@@ -611,6 +620,22 @@ function AdminDashboard() {
                     ] }]}
                     emptyLabel="No trades match."
                   />
+                  {viewTrade && (() => {
+                    const tu = panelUsers.find((u) => u.id === viewTrade.userId);
+                    return (
+                      <TradeResultViewDialog
+                        trade={viewTrade}
+                        open={!!viewTrade}
+                        onOpenChange={(o) => { if (!o) setViewTrade(null); }}
+                        userName={tu?.name || "Customer"}
+                        userInitials={
+                          tu
+                            ? `${tu.fname?.[0] ?? ""}${tu.lname?.[0] ?? ""}`.toUpperCase() || "U"
+                            : "U"
+                        }
+                      />
+                    );
+                  })()}
                 </div>
               );
             })()}
@@ -980,22 +1005,33 @@ function AdminDashboard() {
                 </div>
 
                 <div className="rounded-xl border border-border/60 bg-card/60 p-5">
-                  <div className="flex items-center gap-2"><Percent className="h-5 w-5 text-primary" /><h2 className="font-semibold">Trade payout</h2></div>
-                  <p className="mt-1 text-xs text-muted-foreground">Futures (binary) profit % on a winning trade. Currently <span className="font-mono text-foreground">+{payoutPercent.toFixed(1)}%</span>.</p>
-                  <div className="mt-4 flex items-end gap-3">
-                    <div className="flex-1">
-                      <Label>Payout %</Label>
-                      <Input type="number" min="0" max="500" step="0.5" value={payoutDraft} onChange={(e) => setPayoutDraft(e.target.value)} />
-                    </div>
-                    <Button className="bg-primary text-primary-foreground" onClick={() => {
-                      const n = parseFloat(payoutDraft);
-                      if (!Number.isFinite(n) || n < 0 || n > 500) return toast.error("Enter 0–500");
-                      runAction("save-payout", async () => {
-                        const r = await adminSetPayoutPercent(n);
-                        if (!r.ok) throw new Error(r.msg);
-                      }, `Payout set to +${n.toFixed(1)}%`);
-                    }}>Save</Button>
+                  <div className="flex items-center gap-2"><Percent className="h-5 w-5 text-primary" /><h2 className="font-semibold">Trade payout (by duration)</h2></div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Winning profit % is fixed by trade duration. Losing trades always lose <span className="font-mono text-foreground">100%</span> of the stake.
+                  </p>
+                  <div className="mt-4 overflow-hidden rounded-lg border border-border/60">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Duration</th>
+                          <th className="px-3 py-2 text-right">Win profit</th>
+                          <th className="px-3 py-2 text-right">Loss</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {TRADE_DURATIONS.map((d) => (
+                          <tr key={d.sec} className="border-t border-border/60">
+                            <td className="px-3 py-2 font-mono">{d.label} ({d.sec}s)</td>
+                            <td className="px-3 py-2 text-right font-mono text-primary">+{d.profitPercent}%</td>
+                            <td className="px-3 py-2 text-right font-mono text-destructive">−100%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
+                  <p className="mt-3 text-[11px] text-muted-foreground">
+                    Example: $100 on a 60s win returns $140 (+40%). A loss returns $0 (−$100).
+                  </p>
                 </div>
 
                 <div className="rounded-xl border border-border/60 bg-card/60 p-5">
@@ -1194,19 +1230,16 @@ function AdminDashboard() {
                 <div className="font-semibold">{kycView.name}</div>
                 <div className="text-xs text-muted-foreground">{kycView.email} · {kycView.phone} · {kycView.country}</div>
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                {(["cnicFront", "cnicBack", "face"] as const).map((k) => {
+              <div className="grid grid-cols-2 gap-3">
+                {(["cnicFront", "cnicBack"] as const).map((k) => {
                   const rawSrc = kycView.kyc[k];
                   const src = getImageUrl(rawSrc);
-                  const isVideo = isMediaVideo(rawSrc) || isMediaVideo(src);
                   return (
                     <div key={k}>
-                      {src && (isVideo ? (
-                        <video src={src} controls className="w-full rounded border border-border bg-black" />
-                      ) : (
+                      {src && (
                         <a href={src} target="_blank" rel="noreferrer"><img src={src} alt={k} className="w-full rounded border border-border" /></a>
-                      ))}
-                      <div className="mt-1 text-center text-xs text-muted-foreground">{k === "face" ? "Selfie video" : k === "cnicFront" ? "CNIC front" : "CNIC back"}</div>
+                      )}
+                      <div className="mt-1 text-center text-xs text-muted-foreground">{k === "cnicFront" ? "CNIC front" : "CNIC back"}</div>
                     </div>
                   );
                 })}

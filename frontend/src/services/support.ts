@@ -17,14 +17,18 @@ export type SupportMessage = {
   senderId: string;
   senderRole: "user" | "staff" | "admin";
   content: string;
+  image?: string;
   createdAt: number;
+  editedAt?: number;
+  deleted?: boolean;
 };
 
 type SupportResponse<T> = { ok: boolean; msg?: string } & T;
 
-function authHeaders() {
+function authHeaders(json = false) {
   const token = getAuthToken();
   const headers: Record<string, string> = {};
+  if (json) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
@@ -62,11 +66,17 @@ export async function apiListSupportThreadMessages(threadId: string): Promise<
 export async function apiSendSupportMessage(input: {
   threadId?: string;
   content: string;
+  image?: File | null;
 }): Promise<SupportResponse<{ thread: SupportThread; message: SupportMessage }>> {
+  const form = new FormData();
+  form.append("content", input.content ?? "");
+  if (input.threadId) form.append("threadId", input.threadId);
+  if (input.image) form.append("image", input.image, input.image.name || "screenshot.jpg");
+
   const res = await fetch(`${API_URL}/api/support/messages`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(input),
+    headers: authHeaders(false),
+    body: form,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(data.msg || "Could not send message", res.status);
@@ -79,10 +89,55 @@ export async function apiSetSupportThreadStatus(
 ): Promise<SupportResponse<{ thread: SupportThread }>> {
   const res = await fetch(`${API_URL}/api/support/threads/${encodeURIComponent(threadId)}/status`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: authHeaders(true),
     body: JSON.stringify({ status }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(data.msg || "Could not update ticket", res.status);
   return data as SupportResponse<{ thread: SupportThread }>;
+}
+
+export async function apiGetSupportUnread(): Promise<
+  SupportResponse<{ count: number; preview?: SupportMessage; threadId?: string; at?: number }>
+> {
+  const res = await fetch(`${API_URL}/api/support/unread`, { headers: authHeaders() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(data.msg || "Could not load unread support", res.status);
+  return data as SupportResponse<{ count: number; preview?: SupportMessage; threadId?: string; at?: number }>;
+}
+
+export async function apiMarkSupportThreadRead(threadId: string): Promise<SupportResponse<Record<string, never>>> {
+  const res = await fetch(`${API_URL}/api/support/threads/${encodeURIComponent(threadId)}/read`, {
+    method: "POST",
+    headers: authHeaders(true),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(data.msg || "Could not mark as read", res.status);
+  return data as SupportResponse<Record<string, never>>;
+}
+
+export async function apiEditSupportMessage(
+  messageId: string,
+  content: string
+): Promise<SupportResponse<{ thread: SupportThread; message: SupportMessage }>> {
+  const res = await fetch(`${API_URL}/api/support/messages/${encodeURIComponent(messageId)}`, {
+    method: "PATCH",
+    headers: authHeaders(true),
+    body: JSON.stringify({ content }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(data.msg || "Could not edit message", res.status);
+  return data as SupportResponse<{ thread: SupportThread; message: SupportMessage }>;
+}
+
+export async function apiDeleteSupportMessage(
+  messageId: string
+): Promise<SupportResponse<{ thread?: SupportThread; messageId?: string }>> {
+  const res = await fetch(`${API_URL}/api/support/messages/${encodeURIComponent(messageId)}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(data.msg || "Could not delete message", res.status);
+  return data as SupportResponse<{ thread?: SupportThread; messageId?: string }>;
 }

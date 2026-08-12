@@ -1,17 +1,26 @@
 const { fetchMarkPrice } = require("./markPrice");
+const {
+  profitPercentForDuration,
+  FULL_LOSS_PERCENT,
+} = require("./durationPayout");
 
 function pickPercents(trade, user, globalPayoutPercent) {
+  const durationProfit = profitPercentForDuration(trade?.durationSec);
   let profitPercent =
     trade.customProfitPercent ??
-    user.profitPercent ??
+    durationProfit ??
+    user?.profitPercent ??
     globalPayoutPercent ??
-    85;
-  let lossPercent = trade.customLossPercent ?? user.lossPercent ?? 100;
+    40;
+
+  // Loss is always the full stake unless an admin sets a custom loss on this trade
+  let lossPercent =
+    trade.customLossPercent != null ? trade.customLossPercent : FULL_LOSS_PERCENT;
 
   profitPercent = Number(profitPercent);
   lossPercent = Number(lossPercent);
-  if (!Number.isFinite(profitPercent)) profitPercent = 85;
-  if (!Number.isFinite(lossPercent)) lossPercent = 100;
+  if (!Number.isFinite(profitPercent)) profitPercent = durationProfit ?? 40;
+  if (!Number.isFinite(lossPercent)) lossPercent = FULL_LOSS_PERCENT;
   profitPercent = Math.min(500, Math.max(0, profitPercent));
   lossPercent = Math.min(100, Math.max(0, lossPercent));
   return { profitPercent, lossPercent };

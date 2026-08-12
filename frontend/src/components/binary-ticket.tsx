@@ -6,16 +6,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/context/store";
-import { TRADE_DURATIONS } from "@/constants/roles";
+import { TRADE_DURATIONS, profitPercentForDuration } from "@/constants/roles";
 import { formatPrice, type Asset } from "@/services/market-data";
 
 export function BinaryTicket({ asset }: { asset: Asset }) {
-  const { user, wallet, myTrades, placeBinaryTrade, closeMyTrade, payoutPercent } = useStore();
+  const { user, wallet, myTrades, placeBinaryTrade, closeMyTrade } = useStore();
   const [stake, setStake] = useState("10");
   const [durationSec, setDurationSec] = useState<number>(60);
   const [closingId, setClosingId] = useState<string | null>(null);
 
   const stakeN = parseFloat(stake) || 0;
+  const payoutPercent = profitPercentForDuration(durationSec);
   const profit = useMemo(() => stakeN * (payoutPercent / 100), [stakeN, payoutPercent]);
   const insufficient = stakeN > wallet.cashUSDT;
   const kycBlocked = !!user && user.kyc.status !== "approved";
@@ -57,7 +58,11 @@ export function BinaryTicket({ asset }: { asset: Asset }) {
         </div>
         <div className="mt-1 flex items-center justify-between text-xs">
           <span className="text-muted-foreground">Payout if you win</span>
-          <span className="font-mono font-semibold text-primary">+{payoutPercent.toFixed(0)}%</span>
+          <span className="font-mono font-semibold text-primary">+{payoutPercent}%</span>
+        </div>
+        <div className="mt-1 flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">Loss if wrong</span>
+          <span className="font-mono font-semibold text-destructive">−100%</span>
         </div>
       </div>
 
@@ -73,7 +78,10 @@ export function BinaryTicket({ asset }: { asset: Asset }) {
                 durationSec === d.sec ? "border-primary bg-primary/15 text-primary" : "border-border text-muted-foreground hover:text-foreground"
               }`}
             >
-              {d.label}
+              <div>{d.label}</div>
+              <div className={`text-[10px] font-mono ${durationSec === d.sec ? "text-primary" : "text-muted-foreground"}`}>
+                +{d.profitPercent}%
+              </div>
             </button>
           ))}
         </div>
