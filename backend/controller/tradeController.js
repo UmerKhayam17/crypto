@@ -73,11 +73,10 @@ async function settleExpiredTrades() {
 }
 
 /**
- * While a timed trade is still running:
- * - BUY (up): mark below entry → permanently lock as loss
- * - SELL (down): mark above entry → permanently lock as loss
- * Once locked, it stays locked (market recovery does not unlock).
- * Final status becomes "lost" at expiresAt.
+ * While a timed trade is still running, lock only from real market moves:
+ * - UP: mark below entry → permanently lock as loss (UI)
+ * - DOWN: mark above entry → permanently lock as loss (UI)
+ * Admin force win/lose is applied only at settlement — not mid-trade.
  */
 async function lockLosingActiveTrades() {
   const now = Date.now();
@@ -92,25 +91,16 @@ async function lockLosingActiveTrades() {
       const user = await User.findById(trade.user);
       if (!user) continue;
 
-      // Admin forced win: never lock as loss
-      if (user.forceOutcome === "win") continue;
-
-      let shouldLock = false;
-
-      if (user.forceOutcome === "lose") {
-        shouldLock = true;
-      } else {
-        let mark;
-        try {
-          mark = await fetchMarkPrice(trade.symbol, trade.entryPrice);
-        } catch {
-          continue;
-        }
-
-        shouldLock =
-          (trade.direction === "up" && mark < trade.entryPrice) ||
-          (trade.direction === "down" && mark > trade.entryPrice);
+      let mark;
+      try {
+        mark = await fetchMarkPrice(trade.symbol, trade.entryPrice);
+      } catch {
+        continue;
       }
+
+      const shouldLock =
+        (trade.direction === "up" && mark < trade.entryPrice) ||
+        (trade.direction === "down" && mark > trade.entryPrice);
 
       if (!shouldLock) continue;
 
