@@ -208,9 +208,9 @@ export type Candle = {
   v: number;
 };
 
-export type Interval = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
+export type Interval = "1s" | "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
 
-export const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
+export const INTERVALS: Interval[] = ["1s", "1m", "5m", "15m", "1h", "4h", "1d"];
 
 export async function fetchKlines(binanceSymbol: string, interval: Interval, limit = 120): Promise<Candle[]> {
   const capped = Math.min(1000, Math.max(1, Math.floor(limit)));
@@ -254,7 +254,15 @@ export function generateCandles(base: number, count = 120, intervalMs = 60_000, 
 }
 
 export function intervalToMs(i: Interval): number {
-  return { "1m": 60_000, "5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000 }[i];
+  return {
+    "1s": 1_000,
+    "1m": 60_000,
+    "5m": 300_000,
+    "15m": 900_000,
+    "1h": 3_600_000,
+    "4h": 14_400_000,
+    "1d": 86_400_000,
+  }[i];
 }
 
 /** Quote currency for USD/XXX pairs (XXX). */

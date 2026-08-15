@@ -139,6 +139,7 @@ async function emit(type, payload, { userId = null, scope = "user" } = {}) {
             customLossPercent,
             ...safeTrade
           } = payload.trade;
+          // Keep lossLocked so the user can see an adverse market lock before expiry
           out = { ...payload, trade: safeTrade };
         }
         send(ws, type, out);

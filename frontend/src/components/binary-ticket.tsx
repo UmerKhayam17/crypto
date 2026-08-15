@@ -127,15 +127,28 @@ export function BinaryTicket({ asset }: { asset: Asset }) {
           <div className="space-y-2">
             {activeTrades.map((t) => {
               const isCurrent = t.symbol === asset.symbol;
+              const lossLocked = !!t.lossLocked;
               return (
                 <div
                   key={t.id}
                   className={`rounded-md border p-2 text-[11px] ${
-                    isCurrent ? "border-primary/40 bg-primary/5" : "border-border/60 bg-background/40"
+                    lossLocked
+                      ? "border-destructive/50 bg-destructive/10"
+                      : isCurrent
+                        ? "border-primary/40 bg-primary/5"
+                        : "border-border/60 bg-background/40"
                   }`}
                 >
-                  <div className="font-medium">{t.symbol}</div>
-                  <div className="mt-0.5 flex items-center gap-2 text-muted-foreground">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-medium">{t.symbol}</div>
+                    {lossLocked && (
+                      <span className="inline-flex items-center gap-1 rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
+                        <XCircle className="h-3 w-3" />
+                        In loss
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-muted-foreground">
                     <span className={t.direction === "up" ? "text-primary" : "text-destructive"}>
                       {t.direction.toUpperCase()}
                     </span>
@@ -162,9 +175,13 @@ export function BinaryTicket({ asset }: { asset: Asset }) {
                   {t.resolvedAt ? new Date(t.resolvedAt).toLocaleString() : "—"}
                 </span>
                 <span className="flex items-center gap-2">
-                  {t.status === "won"
-                    ? <span className="inline-flex items-center gap-0.5 text-primary"><CheckCircle2 className="h-3 w-3" />WON</span>
-                    : <span className="inline-flex items-center gap-0.5 text-destructive"><XCircle className="h-3 w-3" />LOST</span>}
+                  {t.status === "won" ? (
+                    <span className="inline-flex items-center gap-0.5 text-primary"><CheckCircle2 className="h-3 w-3" />WON</span>
+                  ) : t.status === "draw" ? (
+                    <span className="inline-flex items-center gap-0.5 text-muted-foreground">DRAW</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-0.5 text-destructive"><XCircle className="h-3 w-3" />LOST</span>
+                  )}
                   <span className={`font-mono ${(t.pnl ?? 0) >= 0 ? "text-primary" : "text-destructive"}`}>
                     {(t.pnl ?? 0) >= 0 ? "+" : ""}${(t.pnl ?? 0).toFixed(2)}
                   </span>

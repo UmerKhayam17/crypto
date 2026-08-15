@@ -26,7 +26,10 @@ function pickPercents(trade, user, globalPayoutPercent) {
   return { profitPercent, lossPercent };
 }
 
-function computeResult({ won, stake, profitPercent, lossPercent }) {
+function computeResult({ won, draw, stake, profitPercent, lossPercent }) {
+  if (draw) {
+    return { payout: stake, pnl: 0 };
+  }
   if (won) {
     const payout = stake * (1 + profitPercent / 100);
     return { payout, pnl: payout - stake };
@@ -36,39 +39,62 @@ function computeResult({ won, stake, profitPercent, lossPercent }) {
   return { payout, pnl: payout - stake };
 }
 
+function isFlatMove(entryPrice, closePrice) {
+  const entry = Number(entryPrice);
+  const close = Number(closePrice);
+  if (!Number.isFinite(entry) || !Number.isFinite(close) || entry <= 0) return false;
+  const moved = Math.abs(close - entry);
+  // Treat as stable if unchanged within a tiny relative band (avoids float noise)
+  return moved <= Math.max(1e-8, entry * 1e-8);
+}
+
 function decideWin(trade, user, closePrice) {
-  if (trade.plannedOutcome === "profit") {
-    return { won: true, source: "planned" };
-  }
-  if (trade.plannedOutcome === "loss") {
-    return { won: false, source: "planned" };
-  }
   if (user.forceOutcome === "win") {
-    return { won: true, source: "forced-win" };
+    return { won: true, draw: false, source: "forced-win" };
   }
   if (user.forceOutcome === "lose") {
-    return { won: false, source: "forced-loss" };
+    return { won: false, draw: false, source: "forced-loss" };
   }
+
+  // Stable market (entry ≈ close): refund stake — not a loss
+  if (isFlatMove(trade.entryPrice, closePrice)) {
+    return { won: false, draw: true, source: "market" };
+  }
+
+  if (trade.plannedOutcome === "profit") {
+    return { won: true, draw: false, source: "planned" };
+  }
+  if (trade.plannedOutcome === "loss") {
+    return { won: false, draw: false, source: "planned" };
+  }
+
   const moved = closePrice - trade.entryPrice;
   const won = trade.direction === "up" ? moved > 0 : moved < 0;
-  return { won, source: "market" };
+  return { won, draw: false, source: "market" };
 }
 
 /** Always resolves close via server mark price (client override ignored). */
 async function settleTradeDoc(trade, user, globalPayoutPercent) {
   const closePrice = await fetchMarkPrice(trade.symbol, trade.entryPrice);
-  const { won, source } = decideWin(trade, user, closePrice);
+  const { won, draw, source } = decideWin(trade, user, closePrice);
   const { profitPercent, lossPercent } = pickPercents(trade, user, globalPayoutPercent);
-  const { payout, pnl } = computeResult({ won, stake: trade.stake, profitPercent, lossPercent });
+  const { payout, pnl } = computeResult({
+    won,
+    draw,
+    stake: trade.stake,
+    profitPercent,
+    lossPercent,
+  });
 
-  trade.status = won ? "won" : "lost";
+  trade.status = draw ? "draw" : won ? "won" : "lost";
   trade.closePrice = closePrice;
   trade.payout = payout;
   trade.pnl = pnl;
   trade.resolvedAt = Date.now();
   trade.outcomeSource = source;
+  trade.lossLocked = false;
 
-  return { payout, pnl, won, closePrice };
+  return { payout, pnl, won, draw, closePrice };
 }
 
 function settleTradeForced(trade, user, globalPayoutPercent, outcome, profitPercent, lossPercent) {
@@ -98,6 +124,7 @@ function settleTradeForced(trade, user, globalPayoutPercent, outcome, profitPerc
 
   const { payout, pnl } = computeResult({
     won,
+    draw: false,
     stake: trade.stake,
     profitPercent: pct.profitPercent,
     lossPercent: pct.lossPercent,
@@ -110,6 +137,7 @@ function settleTradeForced(trade, user, globalPayoutPercent, outcome, profitPerc
   trade.resolvedAt = Date.now();
   trade.outcomeSource = "admin";
   trade.plannedOutcome = null;
+  trade.lossLocked = false;
 
   return { payout, pnl, won };
 }
@@ -120,4 +148,5 @@ module.exports = {
   fetchClosePrice: fetchMarkPrice,
   pickPercents,
   computeResult,
+  isFlatMove,
 };

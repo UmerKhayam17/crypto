@@ -17,7 +17,7 @@ const tradeSchema = new mongoose.Schema(
     expiresAt: { type: Number, required: true, index: true },
     status: {
       type: String,
-      enum: ["active", "settling", "won", "lost"],
+      enum: ["active", "settling", "won", "lost", "draw"],
       default: "active",
       index: true,
     },
@@ -35,6 +35,8 @@ const tradeSchema = new mongoose.Schema(
       enum: ["profit", "loss"],
       default: null,
     },
+    /** Live UI flag: market is currently against this trade (does not force final status). */
+    lossLocked: { type: Boolean, default: false },
     customProfitPercent: { type: Number },
     customLossPercent: { type: Number },
   },

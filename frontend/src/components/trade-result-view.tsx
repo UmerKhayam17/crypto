@@ -51,6 +51,7 @@ export function TradeResultViewDialog({
   const [downloading, setDownloading] = useState(false);
 
   const won = trade.status === "won";
+  const draw = trade.status === "draw";
   const pnl = trade.pnl ?? 0;
   const roi = roiPercent(trade);
   const positive = pnl >= 0;
@@ -198,11 +199,13 @@ export function TradeResultViewDialog({
                       "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[9px] font-extrabold uppercase tracking-wider sm:gap-1.5 sm:px-2.5 sm:text-[10px]",
                       won
                         ? "bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/35"
-                        : "bg-rose-400/15 text-rose-300 ring-1 ring-rose-400/35"
+                        : draw
+                          ? "bg-white/10 text-white/70 ring-1 ring-white/20"
+                          : "bg-rose-400/15 text-rose-300 ring-1 ring-rose-400/35"
                     )}
                   >
-                    {won ? <CheckCircle2 className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> : <XCircle className="h-3 w-3 sm:h-3.5 sm:w-3.5" />}
-                    {won ? "Won" : "Lost"}
+                    {won ? <CheckCircle2 className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> : draw ? null : <XCircle className="h-3 w-3 sm:h-3.5 sm:w-3.5" />}
+                    {won ? "Won" : draw ? "Draw" : "Lost"}
                   </div>
                 </div>
 

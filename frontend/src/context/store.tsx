@@ -147,13 +147,15 @@ export type BinaryTrade = {
   entryPrice: number;
   openedAt: number;
   expiresAt: number;
-  status: "active" | "won" | "lost";
+  status: "active" | "won" | "lost" | "draw";
   closePrice?: number;
   payout?: number;       // amount credited back to wallet (stake+profit on win; 0 on loss)
   pnl?: number;          // payout - stake (profit/loss)
   resolvedAt?: number;
-  outcomeSource?: "random" | "forced-win" | "forced-loss" | "admin" | "planned" | "user-close";
+  outcomeSource?: "random" | "market" | "forced-win" | "forced-loss" | "admin" | "planned" | "user-close";
   plannedOutcome?: "profit" | "loss";
+  /** Market moved against this trade; final status still settles at expiresAt */
+  lossLocked?: boolean;
   customProfitPercent?: number;
   customLossPercent?: number;
 };
