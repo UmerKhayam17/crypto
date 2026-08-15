@@ -20,6 +20,8 @@ function formatTrade(doc, opts = {}) {
     payout: json.payout,
     pnl: json.pnl,
     resolvedAt: json.resolvedAt,
+    // Visible to users: market is currently against this trade (preview only)
+    lossLocked: !!json.lossLocked,
   };
 
   if (!staff) return base;

@@ -108,6 +108,7 @@ function ProfileContent() {
                     <th className="px-3 py-3 text-right">Entry</th>
                     <th className="px-3 py-3 text-right">Mark</th>
                     <th className="px-3 py-3 text-right">Settles in</th>
+                    <th className="px-3 py-3 text-left">Result</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -121,6 +122,15 @@ function ProfileContent() {
                         <td className="px-3 py-3 text-right font-mono">${formatPrice(t.entryPrice)}</td>
                         <td className="px-3 py-3 text-right font-mono">${formatPrice(mark)}</td>
                         <td className="px-3 py-3 text-right"><CountdownChip until={t.expiresAt} /></td>
+                        <td className="px-3 py-3">
+                          {t.lossLocked ? (
+                            <span className="inline-flex items-center gap-1 rounded bg-destructive/15 px-2 py-0.5 text-xs font-semibold text-destructive">
+                              <XCircle className="h-3 w-3" />In loss
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Open</span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -161,9 +171,13 @@ function ProfileContent() {
                       <td className="px-3 py-3 text-right font-mono">${formatPrice(t.entryPrice)}</td>
                       <td className="px-3 py-3 text-right font-mono">{t.closePrice != null ? `$${formatPrice(t.closePrice)}` : "—"}</td>
                       <td className="px-3 py-3">
-                        {t.status === "won"
-                          ? <span className="inline-flex items-center gap-1 rounded bg-primary/15 px-2 py-0.5 text-xs font-semibold text-primary"><CheckCircle2 className="h-3 w-3" />WON</span>
-                          : <span className="inline-flex items-center gap-1 rounded bg-destructive/15 px-2 py-0.5 text-xs font-semibold text-destructive"><XCircle className="h-3 w-3" />LOST</span>}
+                        {t.status === "won" ? (
+                          <span className="inline-flex items-center gap-1 rounded bg-primary/15 px-2 py-0.5 text-xs font-semibold text-primary"><CheckCircle2 className="h-3 w-3" />WON</span>
+                        ) : t.status === "draw" ? (
+                          <span className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">DRAW</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded bg-destructive/15 px-2 py-0.5 text-xs font-semibold text-destructive"><XCircle className="h-3 w-3" />LOST</span>
+                        )}
                       </td>
                       <td className={`px-3 py-3 text-right font-mono ${(t.pnl ?? 0) >= 0 ? "text-primary" : "text-destructive"}`}>
                         {(t.pnl ?? 0) >= 0 ? "+" : ""}${(t.pnl ?? 0).toFixed(2)}

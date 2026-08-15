@@ -26,7 +26,10 @@ function pickPercents(trade, user, globalPayoutPercent) {
   return { profitPercent, lossPercent };
 }
 
-function computeResult({ won, stake, profitPercent, lossPercent }) {
+function computeResult({ won, draw, stake, profitPercent, lossPercent }) {
+  if (draw) {
+    return { payout: stake, pnl: 0 };
+  }
   if (won) {
     const payout = stake * (1 + profitPercent / 100);
     return { payout, pnl: payout - stake };
@@ -36,39 +39,99 @@ function computeResult({ won, stake, profitPercent, lossPercent }) {
   return { payout, pnl: payout - stake };
 }
 
+function isFlatMove(entryPrice, closePrice) {
+  const entry = Number(entryPrice);
+  const close = Number(closePrice);
+  if (!Number.isFinite(entry) || !Number.isFinite(close) || entry <= 0) return false;
+  const moved = Math.abs(close - entry);
+  // Treat as stable if unchanged within a tiny relative band (avoids float noise)
+  return moved <= Math.max(1e-8, entry * 1e-8);
+}
+
+/** One "point" size by price magnitude so 10 points is visible on the trade history. */
+function pointSize(price) {
+  const p = Number(price);
+  if (!Number.isFinite(p) || p <= 0) return 1e-8;
+  if (p >= 1000) return 0.01; // BTC: 10 points = $0.10
+  if (p >= 1) return 0.0001; // SOL etc: 10 points = 0.001
+  if (p >= 0.01) return 0.000001; // DOGE etc: 10 points = 0.00001
+  return 1e-8;
+}
+
+/**
+ * When a loss settles with entry ≈ close, nudge close 10 points against the trade
+ * so the history clearly shows why it lost.
+ * UP loss → close below entry; DOWN loss → close above entry.
+ */
+function closePriceForLossDisplay(trade, closePrice) {
+  const entry = Number(trade.entryPrice);
+  const close = Number(closePrice);
+  if (!Number.isFinite(entry) || entry <= 0) return closePrice;
+  if (!isFlatMove(entry, close)) return close;
+
+  const offset = 10 * pointSize(entry);
+  if (trade.direction === "up") {
+    return Math.max(entry - offset, entry * 1e-12);
+  }
+  return entry + offset;
+}
+
 function decideWin(trade, user, closePrice) {
-  if (trade.plannedOutcome === "profit") {
-    return { won: true, source: "planned" };
-  }
-  if (trade.plannedOutcome === "loss") {
-    return { won: false, source: "planned" };
-  }
   if (user.forceOutcome === "win") {
-    return { won: true, source: "forced-win" };
+    return { won: true, draw: false, source: "forced-win" };
   }
   if (user.forceOutcome === "lose") {
-    return { won: false, source: "forced-loss" };
+    return { won: false, draw: false, source: "forced-loss" };
   }
+
+  // Once market moved against the trade mid-duration, final status is always lost
+  if (trade.lossLocked) {
+    return { won: false, draw: false, source: "market" };
+  }
+
+  if (trade.plannedOutcome === "profit") {
+    return { won: true, draw: false, source: "planned" };
+  }
+  if (trade.plannedOutcome === "loss") {
+    return { won: false, draw: false, source: "planned" };
+  }
+
+  // Stable market (entry ≈ close): refund stake — not a loss
+  if (isFlatMove(trade.entryPrice, closePrice)) {
+    return { won: false, draw: true, source: "market" };
+  }
+
   const moved = closePrice - trade.entryPrice;
   const won = trade.direction === "up" ? moved > 0 : moved < 0;
-  return { won, source: "market" };
+  return { won, draw: false, source: "market" };
 }
 
 /** Always resolves close via server mark price (client override ignored). */
 async function settleTradeDoc(trade, user, globalPayoutPercent) {
-  const closePrice = await fetchMarkPrice(trade.symbol, trade.entryPrice);
-  const { won, source } = decideWin(trade, user, closePrice);
+  let closePrice = await fetchMarkPrice(trade.symbol, trade.entryPrice);
+  const { won, draw, source } = decideWin(trade, user, closePrice);
   const { profitPercent, lossPercent } = pickPercents(trade, user, globalPayoutPercent);
-  const { payout, pnl } = computeResult({ won, stake: trade.stake, profitPercent, lossPercent });
+  const { payout, pnl } = computeResult({
+    won,
+    draw,
+    stake: trade.stake,
+    profitPercent,
+    lossPercent,
+  });
 
-  trade.status = won ? "won" : "lost";
+  if (!won && !draw) {
+    closePrice = closePriceForLossDisplay(trade, closePrice);
+  }
+
+  trade.status = draw ? "draw" : won ? "won" : "lost";
   trade.closePrice = closePrice;
   trade.payout = payout;
   trade.pnl = pnl;
   trade.resolvedAt = Date.now();
   trade.outcomeSource = source;
+  trade.lossLocked = false;
 
-  return { payout, pnl, won, closePrice };
+  return { payout, pnl, won, draw, closePrice };
 }
 
 function settleTradeForced(trade, user, globalPayoutPercent, outcome, profitPercent, lossPercent) {
@@ -98,18 +161,25 @@ function settleTradeForced(trade, user, globalPayoutPercent, outcome, profitPerc
 
   const { payout, pnl } = computeResult({
     won,
+    draw: false,
     stake: trade.stake,
     profitPercent: pct.profitPercent,
     lossPercent: pct.lossPercent,
   });
 
+  let closePrice = trade.entryPrice;
+  if (!won) {
+    closePrice = closePriceForLossDisplay(trade, trade.entryPrice);
+  }
+
   trade.status = won ? "won" : "lost";
-  trade.closePrice = trade.entryPrice;
+  trade.closePrice = closePrice;
   trade.payout = payout;
   trade.pnl = pnl;
   trade.resolvedAt = Date.now();
   trade.outcomeSource = "admin";
   trade.plannedOutcome = null;
+  trade.lossLocked = false;
 
   return { payout, pnl, won };
 }
@@ -120,4 +190,5 @@ module.exports = {
   fetchClosePrice: fetchMarkPrice,
   pickPercents,
   computeResult,
+  isFlatMove,
 };

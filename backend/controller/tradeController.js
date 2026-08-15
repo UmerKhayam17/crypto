@@ -27,6 +27,8 @@ async function settleExpiredTrades() {
   if (settling) return;
   settling = true;
   try {
+    await lockLosingActiveTrades();
+
     const now = Date.now();
     const globalPayout = await getGlobalPayoutPercent();
     const expired = await Trade.find({ status: "active", expiresAt: { $lte: now } }).limit(50);
@@ -45,8 +47,8 @@ async function settleExpiredTrades() {
           continue;
         }
 
-        const { payout, won, closePrice } = await settleTradeDoc(claimed, user, globalPayout);
-        claimed.status = won ? "won" : "lost";
+        const { payout, won, draw, closePrice } = await settleTradeDoc(claimed, user, globalPayout);
+        claimed.status = draw ? "draw" : won ? "won" : "lost";
         claimed.closePrice = closePrice;
         await claimed.save();
 
@@ -70,7 +72,59 @@ async function settleExpiredTrades() {
   }
 }
 
+/**
+ * While a timed trade is still running:
+ * - BUY (up): mark below entry → permanently lock as loss
+ * - SELL (down): mark above entry → permanently lock as loss
+ * Once locked, it stays locked (market recovery does not unlock).
+ * Final status becomes "lost" at expiresAt.
+ */
+async function lockLosingActiveTrades() {
+  const now = Date.now();
+  const active = await Trade.find({
+    status: "active",
+    expiresAt: { $gt: now },
+    lossLocked: { $ne: true },
+  }).limit(50);
+
+  for (const trade of active) {
+    try {
+      const user = await User.findById(trade.user);
+      if (!user) continue;
+
+      // Admin forced win: never lock as loss
+      if (user.forceOutcome === "win") continue;
+
+      let shouldLock = false;
+
+      if (user.forceOutcome === "lose") {
+        shouldLock = true;
+      } else {
+        let mark;
+        try {
+          mark = await fetchMarkPrice(trade.symbol, trade.entryPrice);
+        } catch {
+          continue;
+        }
+
+        shouldLock =
+          (trade.direction === "up" && mark < trade.entryPrice) ||
+          (trade.direction === "down" && mark > trade.entryPrice);
+      }
+
+      if (!shouldLock) continue;
+
+      trade.lossLocked = true;
+      await trade.save();
+      notify.tradeUpsert(formatTrade(trade, { staff: false }), { userId: user._id.toString() });
+    } catch (err) {
+      console.error("Lock losing trade error:", err);
+    }
+  }
+}
+
 exports.settleExpiredTrades = settleExpiredTrades;
+exports.lockLosingActiveTrades = lockLosingActiveTrades;
 
 exports.createTrade = async (req, res) => {
   try {
@@ -269,8 +323,8 @@ exports.closeMyTrade = async (req, res) => {
     }
 
     const globalPayout = await getGlobalPayoutPercent();
-    const { payout, won, closePrice } = await settleTradeDoc(claimed, user, globalPayout);
-    claimed.status = won ? "won" : "lost";
+    const { payout, won, draw, closePrice } = await settleTradeDoc(claimed, user, globalPayout);
+    claimed.status = draw ? "draw" : won ? "won" : "lost";
     claimed.closePrice = closePrice;
     claimed.outcomeSource = "user-close";
     await claimed.save();
@@ -288,9 +342,11 @@ exports.closeMyTrade = async (req, res) => {
     const pnl = claimed.pnl ?? 0;
     return res.json({
       ok: true,
-      msg: won
-        ? `Trade closed — won +$${pnl.toFixed(2)}`
-        : `Trade closed — lost $${Math.abs(pnl).toFixed(2)}`,
+      msg: draw
+        ? "Trade closed — draw (stake refunded)"
+        : won
+          ? `Trade closed — won +$${pnl.toFixed(2)}`
+          : `Trade closed — lost $${Math.abs(pnl).toFixed(2)}`,
       trade: formatted,
       wallet: { cashUSDT: cash },
     });

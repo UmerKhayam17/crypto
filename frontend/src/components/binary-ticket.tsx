@@ -10,10 +10,9 @@ import { TRADE_DURATIONS, profitPercentForDuration } from "@/constants/roles";
 import { formatPrice, type Asset } from "@/services/market-data";
 
 export function BinaryTicket({ asset }: { asset: Asset }) {
-  const { user, wallet, myTrades, placeBinaryTrade, closeMyTrade } = useStore();
+  const { user, wallet, myTrades, placeBinaryTrade } = useStore();
   const [stake, setStake] = useState("10");
   const [durationSec, setDurationSec] = useState<number>(60);
-  const [closingId, setClosingId] = useState<string | null>(null);
 
   const stakeN = parseFloat(stake) || 0;
   const payoutPercent = profitPercentForDuration(durationSec);
@@ -28,14 +27,6 @@ export function BinaryTicket({ asset }: { asset: Asset }) {
 
   const place = async (direction: "up" | "down") => {
     const r = await placeBinaryTrade({ symbol: asset.symbol, direction, stake: stakeN, durationSec });
-    if (!r.ok) toast.error(r.msg);
-    else toast.success(r.msg);
-  };
-
-  const closeTrade = async (tradeId: string) => {
-    setClosingId(tradeId);
-    const r = await closeMyTrade(tradeId);
-    setClosingId(null);
     if (!r.ok) toast.error(r.msg);
     else toast.success(r.msg);
   };
@@ -136,32 +127,34 @@ export function BinaryTicket({ asset }: { asset: Asset }) {
           <div className="space-y-2">
             {activeTrades.map((t) => {
               const isCurrent = t.symbol === asset.symbol;
+              const lossLocked = !!t.lossLocked;
               return (
                 <div
                   key={t.id}
-                  className={`flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-[11px] ${
-                    isCurrent ? "border-primary/40 bg-primary/5" : "border-border/60 bg-background/40"
+                  className={`rounded-md border p-2 text-[11px] ${
+                    lossLocked
+                      ? "border-destructive/50 bg-destructive/10"
+                      : isCurrent
+                        ? "border-primary/40 bg-primary/5"
+                        : "border-border/60 bg-background/40"
                   }`}
                 >
-                  <div className="min-w-0">
+                  <div className="flex items-center justify-between gap-2">
                     <div className="font-medium">{t.symbol}</div>
-                    <div className="mt-0.5 flex items-center gap-2 text-muted-foreground">
-                      <span className={t.direction === "up" ? "text-primary" : "text-destructive"}>
-                        {t.direction.toUpperCase()}
+                    {lossLocked && (
+                      <span className="inline-flex items-center gap-1 rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
+                        <XCircle className="h-3 w-3" />
+                        In loss
                       </span>
-                      <span className="font-mono">${t.stake.toFixed(2)}</span>
-                      <CountdownChip until={t.expiresAt} />
-                    </div>
+                    )}
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10"
-                    disabled={closingId === t.id}
-                    onClick={() => closeTrade(t.id)}
-                  >
-                    {closingId === t.id ? "Closing…" : "Close trade"}
-                  </Button>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-muted-foreground">
+                    <span className={t.direction === "up" ? "text-primary" : "text-destructive"}>
+                      {t.direction.toUpperCase()}
+                    </span>
+                    <span className="font-mono">${t.stake.toFixed(2)}</span>
+                    <CountdownChip until={t.expiresAt} />
+                  </div>
                 </div>
               );
             })}
@@ -182,9 +175,13 @@ export function BinaryTicket({ asset }: { asset: Asset }) {
                   {t.resolvedAt ? new Date(t.resolvedAt).toLocaleString() : "—"}
                 </span>
                 <span className="flex items-center gap-2">
-                  {t.status === "won"
-                    ? <span className="inline-flex items-center gap-0.5 text-primary"><CheckCircle2 className="h-3 w-3" />WON</span>
-                    : <span className="inline-flex items-center gap-0.5 text-destructive"><XCircle className="h-3 w-3" />LOST</span>}
+                  {t.status === "won" ? (
+                    <span className="inline-flex items-center gap-0.5 text-primary"><CheckCircle2 className="h-3 w-3" />WON</span>
+                  ) : t.status === "draw" ? (
+                    <span className="inline-flex items-center gap-0.5 text-muted-foreground">DRAW</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-0.5 text-destructive"><XCircle className="h-3 w-3" />LOST</span>
+                  )}
                   <span className={`font-mono ${(t.pnl ?? 0) >= 0 ? "text-primary" : "text-destructive"}`}>
                     {(t.pnl ?? 0) >= 0 ? "+" : ""}${(t.pnl ?? 0).toFixed(2)}
                   </span>

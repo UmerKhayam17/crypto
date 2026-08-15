@@ -27,6 +27,7 @@ const RANGES: Range[] = [
 ];
 
 const DEFAULT_LIMIT: Record<Interval, number> = {
+  "1s": 180,
   "1m": 120,
   "5m": 120,
   "15m": 96,
@@ -57,6 +58,9 @@ function formatAxisTime(t: number, interval: Interval): string {
   }
   if (interval === "4h" || interval === "1h") {
     return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit" });
+  }
+  if (interval === "1s") {
+    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }
   return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
