@@ -4,17 +4,20 @@ import { getApiUrl } from "@/lib/api-url";
 export type VipTierStatus = {
   level: number;
   name: string;
+  /** Separate deposit amount required for this tier alone. */
   required: number;
-  /** Incremental amount needed for this VIP step (after previous level). */
+  /** Same as required — deposit needed for this VIP step. */
   stepRequired: number;
   reward: number;
-  status: "locked" | "claimable" | "claimed" | "pending_previous";
+  status: "locked" | "claimable" | "claimed" | "pending_previous" | "skipped";
   claimed: boolean;
   claimable: boolean;
   unlocked: boolean;
+  /** Lower tier skipped when a higher tier was claimed first. */
+  skipped?: boolean;
   claimedAt?: number;
   progress: number;
-  /** Deposits counted toward this VIP step (0 until previous VIP is reached). */
+  /** Deposits counted toward this VIP step. */
   progressAmount: number;
   remaining: number;
 };
