@@ -34,40 +34,64 @@ type TradeResultViewProps = {
   userInitials?: string;
 };
 
-function stripOklchInClone(doc: Document) {
-  doc.querySelectorAll("style").forEach((el) => {
-    if (el.textContent?.includes("oklch")) {
-      el.textContent = el.textContent.replace(/oklch\((?:[^()]|\([^)]*\))*\)/gi, "#888888");
-    }
-  });
-  doc.querySelectorAll("[style]").forEach((el) => {
-    const style = el.getAttribute("style");
-    if (style?.includes("oklch")) {
-      el.setAttribute("style", style.replace(/oklch\((?:[^()]|\([^)]*\))*\)/gi, "#888888"));
-    }
-  });
+/** Strip oklch() tokens (nested args / alpha) so html2canvas never parses them. */
+function replaceOklch(css: string, fallback = "#888888"): string {
+  let out = css;
+  let guard = 0;
+  while (/oklch\(/i.test(out) && guard++ < 200) {
+    out = out.replace(/oklch\((?:[^()]|\([^()]*\))*\)/gi, fallback);
+  }
+  return out;
 }
 
-/** Flatten clone styles so html2canvas doesn't break on blur/alpha/radius. */
+/**
+ * html2canvas cannot parse oklch() from the app theme.
+ * Drop cloned stylesheets and keep only the card's inline hex colors.
+ */
 function prepareCloneForCapture(doc: Document) {
-  stripOklchInClone(doc);
+  doc.querySelectorAll('style, link[rel="stylesheet"]').forEach((el) => el.remove());
+
+  doc.querySelectorAll("[style]").forEach((el) => {
+    const style = el.getAttribute("style");
+    if (style && /oklch\(/i.test(style)) {
+      el.setAttribute("style", replaceOklch(style));
+    }
+  });
+
   const card = doc.querySelector(".trade-share-card") as HTMLElement | null;
   if (!card) return;
+
   card.style.background = "#1a1610";
+  card.style.backgroundColor = "#1a1610";
   card.style.color = "#fff7ed";
   card.style.overflow = "hidden";
   card.style.borderRadius = "20px";
+  card.style.boxShadow = "none";
+  card.style.filter = "none";
+  card.style.backdropFilter = "none";
+
   card.querySelectorAll("*").forEach((node) => {
-    if (!(node instanceof HTMLElement)) return;
-    node.style.backdropFilter = "none";
-    node.style.webkitBackdropFilter = "none";
-    node.style.maskImage = "none";
-    node.style.webkitMaskImage = "none";
-    node.style.filter = "none";
-    // Solidify semi-transparent fills that cause checkerboard artifacts
-    const bg = node.style.backgroundColor || "";
-    if (bg.includes("rgba") || node.style.background.includes("rgba")) {
-      // leave explicit solid backgrounds we set; skip complex gradients
+    if (node instanceof HTMLElement) {
+      node.style.backdropFilter = "none";
+      node.style.setProperty("-webkit-backdrop-filter", "none");
+      node.style.maskImage = "none";
+      node.style.setProperty("-webkit-mask-image", "none");
+      node.style.filter = "none";
+      node.style.boxShadow = "none";
+      const inline = node.getAttribute("style");
+      if (inline && /oklch\(/i.test(inline)) {
+        node.setAttribute("style", replaceOklch(inline));
+      }
+    }
+    if (node instanceof SVGElement) {
+      const fill = node.getAttribute("fill");
+      const stroke = node.getAttribute("stroke");
+      if (fill && /oklch\(/i.test(fill)) node.setAttribute("fill", "currentColor");
+      if (stroke && /oklch\(/i.test(stroke)) node.setAttribute("stroke", "currentColor");
+      const svgStyle = node.getAttribute("style");
+      if (svgStyle && /oklch\(/i.test(svgStyle)) {
+        node.setAttribute("style", replaceOklch(svgStyle, "currentColor"));
+      }
     }
   });
 }

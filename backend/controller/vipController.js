@@ -13,38 +13,82 @@ async function getTotalRecharge(userId) {
   return rows[0]?.total || 0;
 }
 
+/** Sum of step amounts already spent on claimed tiers. */
+function getSpentRecharge(claims) {
+  const tiers = getTiers();
+  let spent = 0;
+  for (const c of claims) {
+    const tier = tiers.find((t) => t.level === c.level);
+    if (tier) spent += tier.required;
+  }
+  return spent;
+}
+
+/**
+ * Highest unclaimed tier whose step fits in remaining recharge.
+ * Lower tiers stay skipped (no reward) when a higher one is claimed.
+ */
+function getHighestClaimableLevel(available, maxClaimed) {
+  const tiers = getTiers();
+  let highest = null;
+  for (const tier of tiers) {
+    if (tier.level <= maxClaimed) continue;
+    if (tier.required <= available) highest = tier.level;
+  }
+  return highest;
+}
+
 function buildStatus(totalRecharge, claims) {
   const claimedLevels = new Set(claims.map((c) => c.level));
-  const nextLevel = claims.length === 0 ? 1 : Math.max(...claims.map((c) => c.level)) + 1;
+  const maxClaimed =
+    claims.length === 0 ? 0 : Math.max(...claims.map((c) => c.level));
+  const spent = getSpentRecharge(claims);
+  const available = Math.max(0, totalRecharge - spent);
+  const highestClaimable = getHighestClaimableLevel(available, maxClaimed);
   const tiers = getTiers();
 
-  return tiers.map((tier, index) => {
-    const prevRequired = index === 0 ? 0 : tiers[index - 1].required;
-    const stepRequired = getStepRequired(tier.level) ?? Math.max(0, tier.required - prevRequired);
+  // Next step being filled: first level after maxClaimed (progress target)
+  const nextLevel = maxClaimed + 1;
 
-    // Progress for this VIP only starts after the previous VIP threshold is reached
-    const previousReached = totalRecharge >= prevRequired;
-    const rawInStep = previousReached ? Math.max(0, totalRecharge - prevRequired) : 0;
-    const progressAmount = Math.min(stepRequired, rawInStep);
-    const progress =
-      stepRequired > 0 ? Math.min(100, (progressAmount / stepRequired) * 100) : 0;
-    const remaining = Math.max(0, stepRequired - progressAmount);
-
+  return tiers.map((tier) => {
+    const stepRequired = getStepRequired(tier.level) ?? tier.required;
     const claimed = claimedLevels.has(tier.level);
     const claimRecord = claims.find((c) => c.level === tier.level);
-    const unlocked = totalRecharge >= tier.required;
-    const isNext = tier.level === nextLevel;
-    const claimable = !claimed && unlocked && isNext;
+    const skipped = !claimed && tier.level < maxClaimed;
+    const claimable = !claimed && !skipped && tier.level === highestClaimable;
 
-    let status = "locked";
-    if (claimed || unlocked) {
-      // Reached by recharge (claim UI removed) — treat as reached
-      status = claimed ? "claimed" : "claimable";
-    } else if (!previousReached) {
-      status = "pending_previous";
+    let progressAmount = 0;
+    let remaining = stepRequired;
+    let progress = 0;
+
+    if (claimed || skipped) {
+      progressAmount = stepRequired;
+      remaining = 0;
+      progress = 100;
+    } else if (tier.level === nextLevel || tier.level === highestClaimable) {
+      // Progress counts toward the next open step (or the highest claimable jump)
+      progressAmount = Math.min(stepRequired, available);
+      remaining = Math.max(0, stepRequired - progressAmount);
+      progress = stepRequired > 0 ? Math.min(100, (progressAmount / stepRequired) * 100) : 0;
+    } else if (tier.level < (highestClaimable || nextLevel)) {
+      // Would be skipped if user claims the higher tier
+      progressAmount = 0;
+      remaining = stepRequired;
+      progress = 0;
     } else {
-      status = "locked";
+      progressAmount = 0;
+      remaining = stepRequired;
+      progress = 0;
     }
+
+    const unlocked = claimable || claimed;
+    let status = "locked";
+    if (claimed) status = "claimed";
+    else if (skipped) status = "skipped";
+    else if (claimable) status = "claimable";
+    else if (tier.level > nextLevel && !highestClaimable) status = "pending_previous";
+    else if (tier.level > (highestClaimable || nextLevel)) status = "pending_previous";
+    else status = "locked";
 
     return {
       ...tier,
@@ -52,23 +96,20 @@ function buildStatus(totalRecharge, claims) {
       progressAmount,
       remaining,
       status,
-      claimed: claimed || unlocked,
+      claimed,
       claimable,
       unlocked,
+      skipped,
       claimedAt: claimRecord?.claimedAt,
       progress,
     };
   });
 }
 
-function currentVipFromRecharge(totalRecharge) {
-  const tiers = getTiers();
-  let current = null;
-  for (const tier of tiers) {
-    if (totalRecharge >= tier.required) current = tier;
-    else break;
-  }
-  return current;
+function currentVipFromClaims(claims) {
+  if (!claims.length) return null;
+  const maxLevel = Math.max(...claims.map((c) => c.level));
+  return getTierByLevel(maxLevel);
 }
 
 exports.getMyVipStatus = async (req, res) => {
@@ -80,7 +121,7 @@ exports.getMyVipStatus = async (req, res) => {
     const totalRecharge = await getTotalRecharge(req.user._id);
     const claims = await VipClaim.find({ user: req.user._id }).sort({ level: 1 });
     const tiers = buildStatus(totalRecharge, claims);
-    const currentVip = currentVipFromRecharge(totalRecharge);
+    const currentVip = currentVipFromClaims(claims);
 
     return res.json({
       ok: true,
@@ -117,22 +158,34 @@ exports.claimVipReward = async (req, res) => {
     }
 
     const claims = await VipClaim.find({ user: req.user._id }).sort({ level: 1 });
-    const nextLevel = claims.length === 0 ? 1 : Math.max(...claims.map((c) => c.level)) + 1;
-    if (tier.level !== nextLevel) {
+    const maxClaimed =
+      claims.length === 0 ? 0 : Math.max(...claims.map((c) => c.level));
+
+    if (tier.level <= maxClaimed) {
       return res.status(400).json({
         ok: false,
-        msg:
-          tier.level < nextLevel
-            ? "This VIP reward has already been claimed"
-            : `Claim rewards in order. Next available: level ${nextLevel}`,
+        msg: "This VIP level was skipped or already passed",
       });
     }
 
+    const spent = getSpentRecharge(claims);
     const totalRecharge = await getTotalRecharge(req.user._id);
-    if (totalRecharge < tier.required) {
+    const available = Math.max(0, totalRecharge - spent);
+    const highestClaimable = getHighestClaimableLevel(available, maxClaimed);
+
+    if (tier.level !== highestClaimable) {
       return res.status(400).json({
         ok: false,
-        msg: `Need $${tier.required.toFixed(0)} total recharge (you have $${totalRecharge.toFixed(2)})`,
+        msg: highestClaimable
+          ? `Only the highest matching tier can be claimed right now (VIP ${highestClaimable})`
+          : `Need $${tier.required.toFixed(0)} more recharge for this tier (available $${available.toFixed(2)})`,
+      });
+    }
+
+    if (available < tier.required) {
+      return res.status(400).json({
+        ok: false,
+        msg: `Need $${tier.required.toFixed(0)} deposit for this tier (you have $${available.toFixed(2)} available)`,
       });
     }
 

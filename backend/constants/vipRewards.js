@@ -1,7 +1,8 @@
 /** Recharge activity VIP tiers.
- * `required` = cumulative approved deposits to unlock this level.
- * Progress for each level is counted only in the segment after the previous level.
- * e.g. VIP1 0→1000, VIP2 1000→3000 (starts at $0 after VIP1), VIP3 3000→5000, …
+ * `required` = separate deposit amount needed for THIS tier only (not cumulative).
+ * e.g. VIP1 needs $1000, VIP2 needs another $3000, VIP3 another $5000, …
+ * If the user first deposits enough for a higher tier (e.g. $3000), they claim that
+ * tier only — lower unclaimed tiers are skipped with no reward.
  */
 const VIP_TIERS = [
   { level: 1, name: "VIP 1", required: 1000, reward: 200 },
@@ -20,13 +21,10 @@ function getTierByLevel(level) {
   return VIP_TIERS.find((t) => t.level === Number(level)) || null;
 }
 
-/** Incremental deposit amount needed for this level after the previous one. */
+/** Deposit amount required for this VIP step (same as `required`). */
 function getStepRequired(level) {
-  const tiers = VIP_TIERS;
-  const idx = tiers.findIndex((t) => t.level === Number(level));
-  if (idx < 0) return null;
-  const prev = idx === 0 ? 0 : tiers[idx - 1].required;
-  return Math.max(0, tiers[idx].required - prev);
+  const tier = getTierByLevel(level);
+  return tier ? tier.required : null;
 }
 
 module.exports = { VIP_TIERS, getTiers, getTierByLevel, getStepRequired };

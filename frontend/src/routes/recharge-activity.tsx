@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useStore } from "@/context/store";
 import {
   apiGetMyVipStatus,
+  apiClaimVipReward,
   type VipStatusResponse,
   type VipTierStatus,
 } from "@/services/vip";
@@ -24,9 +25,10 @@ export default function RechargeActivityPage() {
 }
 
 function RechargeActivityContent() {
-  const { user, wallet } = useStore();
+  const { user, wallet, syncMyWallet } = useStore();
   const [data, setData] = useState<VipStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [claimingLevel, setClaimingLevel] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -44,15 +46,32 @@ function RechargeActivityContent() {
     void load();
   }, [load]);
 
+  const handleClaim = useCallback(
+    async (level: number) => {
+      setClaimingLevel(level);
+      try {
+        const res = await apiClaimVipReward(level);
+        setData(res);
+        if (res.wallet) syncMyWallet(res.wallet.cashUSDT);
+        toast.success(res.msg || "VIP reward claimed");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not claim reward");
+      } finally {
+        setClaimingLevel(null);
+      }
+    },
+    [syncMyWallet]
+  );
+
   const tiers = data?.tiers ?? [];
   const total = data?.totalRecharge ?? 0;
-  const reachedCount = tiers.filter((t) => t.status === "claimed" || t.status === "claimable").length;
+  const reachedCount = tiers.filter((t) => t.status === "claimed" || t.claimed).length;
   const totalRewards = useMemo(
     () => tiers.reduce((s, t) => s + t.reward, 0),
     [tiers]
   );
   const unlockedRewards = useMemo(
-    () => tiers.filter((t) => t.status === "claimed" || t.status === "claimable" || t.claimed).reduce((s, t) => s + t.reward, 0),
+    () => tiers.filter((t) => t.status === "claimed" || t.claimed).reduce((s, t) => s + t.reward, 0),
     [tiers]
   );
   const nextTier = tiers.find(
@@ -116,8 +135,8 @@ function RechargeActivityContent() {
               </h1>
 
               <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-                Climb the VIP ladder, unlock one-time bonuses, and watch golden rewards spin into your wallet.
-                Each level can be claimed once — keep recharging to open the next.
+                Each VIP needs its own deposit: $1,000 for VIP 1, then a separate $3,000 for VIP 2, and so on.
+                Deposit enough for a higher tier first and you claim that tier only — lower ones are skipped.
               </p>
 
               <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -173,14 +192,17 @@ function RechargeActivityContent() {
             <div className="relative">
               <div className="relative flex justify-between gap-1 overflow-x-auto pb-1">
                 {tiers.map((t) => {
-                  const done = t.status === "claimed" || t.status === "claimable";
+                  const done = t.status === "claimed" || t.claimed;
+                  const skipped = t.status === "skipped";
                   return (
                     <div key={t.level} className="flex min-w-[52px] flex-col items-center gap-1.5">
                       <div
                         className={`relative z-[1] flex h-9 w-9 items-center justify-center rounded-full border-2 text-xs font-bold transition-all ${
                           done
                             ? "border-amber-400/70 bg-amber-400/15 text-amber-200"
-                            : "border-border bg-muted/60 text-muted-foreground"
+                            : skipped
+                              ? "border-border bg-muted/40 text-muted-foreground line-through"
+                              : "border-border bg-muted/60 text-muted-foreground"
                         }`}
                       >
                         {done ? <CheckCircle2 className="h-4 w-4" /> : t.level}
@@ -220,6 +242,8 @@ function RechargeActivityContent() {
                 key={tier.level}
                 tier={tier}
                 delayMs={80 + i * 80}
+                claiming={claimingLevel === tier.level}
+                onClaim={() => void handleClaim(tier.level)}
               />
             ))}
           </div>
@@ -389,15 +413,22 @@ function Coin3D({
 function TierCard({
   tier,
   delayMs,
+  claiming,
+  onClaim,
 }: {
   tier: VipTierStatus;
   delayMs: number;
+  claiming: boolean;
+  onClaim: () => void;
 }) {
   const stepNeed = tier.stepRequired ?? tier.required;
   const progressAmount = tier.progressAmount ?? 0;
   const remaining = tier.remaining ?? Math.max(0, stepNeed - progressAmount);
-  const isReached = tier.status === "claimable" || tier.status === "claimed" || tier.unlocked;
-  const isLocked = !isReached;
+  const isClaimed = tier.status === "claimed" || tier.claimed;
+  const isClaimable = tier.status === "claimable" || tier.claimable;
+  const isSkipped = tier.status === "skipped" || tier.skipped;
+  const isReached = isClaimed || isClaimable;
+  const isLocked = !isReached && !isSkipped;
   const waitingPrevious = tier.status === "pending_previous";
 
   return (
@@ -405,14 +436,16 @@ function TierCard({
       className={`vip-tier-enter group relative overflow-hidden rounded-2xl border p-4 transition-all sm:p-5 ${
         isReached
           ? "border-amber-400/40 bg-gradient-to-br from-amber-400/10 via-card/50 to-transparent"
-          : "border-border/50 bg-card/45 hover:border-border"
+          : isSkipped
+            ? "border-border/40 bg-card/30 opacity-70"
+            : "border-border/50 bg-card/45 hover:border-border"
       }`}
       style={{ animationDelay: `${delayMs}ms` }}
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent" />
 
       <div className="relative flex gap-3.5 sm:gap-5">
-        <div className={`relative shrink-0 ${isLocked ? "opacity-40 grayscale" : ""}`}>
+        <div className={`relative shrink-0 ${isLocked || isSkipped ? "opacity-40 grayscale" : ""}`}>
           <div className={isReached ? "vip-coin-float" : ""} style={{ animationDuration: "4.5s" }}>
             <Coin3D
               size={64}
@@ -435,7 +468,19 @@ function TierCard({
                 >
                   {tier.name}
                 </span>
-                <StatusBadge status={isReached ? "claimed" : waitingPrevious ? "pending_previous" : "locked"} />
+                <StatusBadge
+                  status={
+                    isClaimed
+                      ? "claimed"
+                      : isClaimable
+                        ? "claimable"
+                        : isSkipped
+                          ? "skipped"
+                          : waitingPrevious
+                            ? "pending_previous"
+                            : "locked"
+                  }
+                />
               </div>
 
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs sm:text-sm">
@@ -450,27 +495,54 @@ function TierCard({
             </div>
 
             <div className="flex items-center gap-2 self-center">
-              {isReached && (
+              {isClaimable && (
+                <Button
+                  size="sm"
+                  disabled={claiming}
+                  onClick={onClaim}
+                  className="h-9 rounded-xl bg-gradient-to-r from-amber-300 via-amber-400 to-yellow-500 font-bold text-amber-950 shadow-[0_8px_24px_-8px_rgba(245,197,66,0.55)] hover:opacity-95"
+                >
+                  <Gift className="mr-1.5 h-3.5 w-3.5" />
+                  {claiming ? "Claiming…" : "Claim reward"}
+                </Button>
+              )}
+              {isClaimed && (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-bold text-amber-200">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Reached
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Claimed
+                </span>
+              )}
+              {isSkipped && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+                  Skipped
                 </span>
               )}
               {isLocked && (
                 <span className="inline-flex max-w-[11rem] items-center gap-1.5 rounded-full border border-border/50 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
                   <Lock className="h-3.5 w-3.5 shrink-0" />
                   {waitingPrevious
-                    ? "Reach previous VIP first"
+                    ? "Claim a lower or matching tier first"
                     : `Need $${remaining.toFixed(0)} more`}
                 </span>
               )}
             </div>
           </div>
 
-          <div className="mt-3 text-[10px] text-muted-foreground sm:text-[11px]">
-            <span className="font-mono">
-              ${progressAmount.toFixed(2)} / ${stepNeed.toLocaleString()} recharged
-            </span>
-          </div>
+          {!isSkipped && (
+            <div className="mt-3">
+              <div className="mb-1 flex justify-between text-[10px] text-muted-foreground sm:text-[11px]">
+                <span className="font-mono">
+                  ${progressAmount.toFixed(2)} / ${stepNeed.toLocaleString()} for this tier
+                </span>
+                <span>{Math.round(tier.progress)}%</span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted/60">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-amber-400/80 to-amber-300 transition-all duration-500"
+                  style={{ width: `${Math.min(100, tier.progress)}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -480,15 +552,17 @@ function TierCard({
 function StatusBadge({ status }: { status: VipTierStatus["status"] }) {
   const map = {
     claimed: "bg-amber-400/15 text-amber-200 border-amber-400/25",
-    claimable: "bg-amber-400/15 text-amber-200 border-amber-400/25",
+    claimable: "bg-emerald-400/15 text-emerald-200 border-emerald-400/25",
     locked: "bg-muted/60 text-muted-foreground border-border/50",
     pending_previous: "bg-muted/60 text-muted-foreground border-border/50",
+    skipped: "bg-muted/60 text-muted-foreground border-border/50",
   };
   const label = {
-    claimed: "Reached",
-    claimable: "Reached",
+    claimed: "Claimed",
+    claimable: "Ready",
     locked: "Locked",
     pending_previous: "Locked",
+    skipped: "Skipped",
   };
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${map[status]}`}>
