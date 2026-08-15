@@ -73,17 +73,18 @@ async function settleExpiredTrades() {
 }
 
 /**
- * While a timed trade is still running, preview loss when market moves against the position:
- * - BUY (up): mark below entry → lossLocked
- * - SELL (down): mark above entry → lossLocked
- * Does NOT force final status. Settlement at expiresAt uses live close vs entry
- * (stable/flat market = draw/refund).
+ * While a timed trade is still running:
+ * - BUY (up): mark below entry → permanently lock as loss
+ * - SELL (down): mark above entry → permanently lock as loss
+ * Once locked, it stays locked (market recovery does not unlock).
+ * Final status becomes "lost" at expiresAt.
  */
 async function lockLosingActiveTrades() {
   const now = Date.now();
   const active = await Trade.find({
     status: "active",
     expiresAt: { $gt: now },
+    lossLocked: { $ne: true },
   }).limit(50);
 
   for (const trade of active) {
@@ -91,18 +92,14 @@ async function lockLosingActiveTrades() {
       const user = await User.findById(trade.user);
       if (!user) continue;
 
-      let nextLocked = false;
+      // Admin forced win: never lock as loss
+      if (user.forceOutcome === "win") continue;
 
-      if (user.forceOutcome === "win") {
-        nextLocked = false;
-      } else if (user.forceOutcome === "lose") {
-        nextLocked = true;
+      let shouldLock = false;
+
+      if (user.forceOutcome === "lose") {
+        shouldLock = true;
       } else {
-        // Heal earlier mistaken auto-locks that wrote plannedOutcome=loss
-        // (admin trade plans still use plannedOutcome; only clear when it was market auto-lock noise)
-        // Skip clearing if admin explicitly planned — those stay until expiry.
-        // Market preview uses lossLocked only.
-
         let mark;
         try {
           mark = await fetchMarkPrice(trade.symbol, trade.entryPrice);
@@ -110,15 +107,14 @@ async function lockLosingActiveTrades() {
           continue;
         }
 
-        nextLocked =
+        shouldLock =
           (trade.direction === "up" && mark < trade.entryPrice) ||
           (trade.direction === "down" && mark > trade.entryPrice);
       }
 
-      const prevLocked = !!trade.lossLocked;
-      if (prevLocked === nextLocked) continue;
+      if (!shouldLock) continue;
 
-      trade.lossLocked = nextLocked;
+      trade.lossLocked = true;
       await trade.save();
       notify.tradeUpsert(formatTrade(trade, { staff: false }), { userId: user._id.toString() });
     } catch (err) {

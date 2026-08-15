@@ -23,7 +23,7 @@ export default function PortfolioPage() {
 function PortfolioContent() {
   const {
     user, wallet, myTrades, mySpotPositions, assets,
-    closeMyTrade, closeSpotPosition,
+    closeSpotPosition,
   } = useStore();
   const [closingId, setClosingId] = useState<string | null>(null);
   const [viewTrade, setViewTrade] = useState<BinaryTrade | null>(null);
@@ -37,14 +37,6 @@ function PortfolioContent() {
   const totalPnl =
     history.reduce((s, t) => s + (t.pnl ?? 0), 0) +
     closedSpot.reduce((s, p) => s + (p.pnl ?? 0), 0);
-
-  const handleClose = async (tradeId: string, mark: number) => {
-    setClosingId(tradeId);
-    const r = await closeMyTrade(tradeId, mark);
-    setClosingId(null);
-    if (!r.ok) toast.error(r.msg);
-    else toast.success(r.msg);
-  };
 
   const handleSellSpot = async (id: string) => {
     setClosingId(id);
@@ -94,7 +86,6 @@ function PortfolioContent() {
                     <th className="px-3 py-3 text-right">Mark</th>
                     <th className="px-3 py-3 text-right">Settles in</th>
                     <th className="px-3 py-3 text-left">Result</th>
-                    <th className="px-3 py-3 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -116,17 +107,6 @@ function PortfolioContent() {
                           ) : (
                             <span className="text-xs text-muted-foreground">Open</span>
                           )}
-                        </td>
-                        <td className="px-3 py-3 text-right">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 border-destructive/40 text-destructive hover:bg-destructive/10"
-                            disabled={closingId === t.id || !!t.lossLocked}
-                            onClick={() => handleClose(t.id, mark)}
-                          >
-                            {closingId === t.id ? "Closing…" : "Close"}
-                          </Button>
                         </td>
                       </tr>
                     );

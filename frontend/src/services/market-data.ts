@@ -162,10 +162,19 @@ export const SEED_ASSETS: Asset[] = [
 
 export const FOREX_SYMBOLS = SEED_ASSETS.filter((a) => a.category === "forex").map((a) => a.symbol);
 
+/** Display price with enough decimals to show small entry/close differences. */
 export function formatPrice(p: number): string {
-  if (p >= 1000) return p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (p >= 1) return p.toFixed(2);
-  return p.toFixed(4);
+  if (!Number.isFinite(p)) return "—";
+  if (p >= 1000) {
+    return p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  }
+  if (p >= 1) {
+    return p.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 6 });
+  }
+  if (p >= 0.01) {
+    return p.toLocaleString("en-US", { minimumFractionDigits: 6, maximumFractionDigits: 8 });
+  }
+  return p.toLocaleString("en-US", { minimumFractionDigits: 8, maximumFractionDigits: 10 });
 }
 
 export function formatBig(n: number): string {
