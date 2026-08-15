@@ -10,10 +10,9 @@ import { TRADE_DURATIONS, profitPercentForDuration } from "@/constants/roles";
 import { formatPrice, type Asset } from "@/services/market-data";
 
 export function BinaryTicket({ asset }: { asset: Asset }) {
-  const { user, wallet, myTrades, placeBinaryTrade, closeMyTrade } = useStore();
+  const { user, wallet, myTrades, placeBinaryTrade } = useStore();
   const [stake, setStake] = useState("10");
   const [durationSec, setDurationSec] = useState<number>(60);
-  const [closingId, setClosingId] = useState<string | null>(null);
 
   const stakeN = parseFloat(stake) || 0;
   const payoutPercent = profitPercentForDuration(durationSec);
@@ -28,14 +27,6 @@ export function BinaryTicket({ asset }: { asset: Asset }) {
 
   const place = async (direction: "up" | "down") => {
     const r = await placeBinaryTrade({ symbol: asset.symbol, direction, stake: stakeN, durationSec });
-    if (!r.ok) toast.error(r.msg);
-    else toast.success(r.msg);
-  };
-
-  const closeTrade = async (tradeId: string) => {
-    setClosingId(tradeId);
-    const r = await closeMyTrade(tradeId);
-    setClosingId(null);
     if (!r.ok) toast.error(r.msg);
     else toast.success(r.msg);
   };
@@ -139,29 +130,18 @@ export function BinaryTicket({ asset }: { asset: Asset }) {
               return (
                 <div
                   key={t.id}
-                  className={`flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-[11px] ${
+                  className={`rounded-md border p-2 text-[11px] ${
                     isCurrent ? "border-primary/40 bg-primary/5" : "border-border/60 bg-background/40"
                   }`}
                 >
-                  <div className="min-w-0">
-                    <div className="font-medium">{t.symbol}</div>
-                    <div className="mt-0.5 flex items-center gap-2 text-muted-foreground">
-                      <span className={t.direction === "up" ? "text-primary" : "text-destructive"}>
-                        {t.direction.toUpperCase()}
-                      </span>
-                      <span className="font-mono">${t.stake.toFixed(2)}</span>
-                      <CountdownChip until={t.expiresAt} />
-                    </div>
+                  <div className="font-medium">{t.symbol}</div>
+                  <div className="mt-0.5 flex items-center gap-2 text-muted-foreground">
+                    <span className={t.direction === "up" ? "text-primary" : "text-destructive"}>
+                      {t.direction.toUpperCase()}
+                    </span>
+                    <span className="font-mono">${t.stake.toFixed(2)}</span>
+                    <CountdownChip until={t.expiresAt} />
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10"
-                    disabled={closingId === t.id}
-                    onClick={() => closeTrade(t.id)}
-                  >
-                    {closingId === t.id ? "Closing…" : "Close trade"}
-                  </Button>
                 </div>
               );
             })}
