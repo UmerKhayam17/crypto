@@ -58,22 +58,33 @@ function pointSize(price) {
   return 1e-8;
 }
 
-function displayOffset(entry, close) {
-  const entryN = Number(entry);
-  const closeN = Number(close);
-  const min = 10 * pointSize(entryN);
-  if (!Number.isFinite(closeN)) return min;
-  const delta = Math.abs(closeN - entryN);
-  return Math.max(min, delta || 0);
+/** Random visible move away from entry (about 8–45 points). */
+function randomOffset(entry) {
+  const unit = pointSize(entry);
+  const points = 8 + Math.floor(Math.random() * 38); // 8..45
+  return points * unit;
 }
 
 /**
- * Make close price visually match the result:
- * - UP loss  → close below entry
- * - DOWN loss → close above entry
- * - UP win   → close above entry
- * - DOWN win → close below entry
- * Used when admin forces outcome, or when real mark contradicts the settled result.
+ * Build a close price that visually matches the settled result,
+ * with a random increase/decrease from entry.
+ * - UP win / DOWN loss → close above entry
+ * - UP loss / DOWN win → close below entry
+ */
+function fabricateCloseForOutcome(trade, { won, draw }) {
+  if (draw) return trade.entryPrice;
+  const entry = Number(trade.entryPrice);
+  if (!Number.isFinite(entry) || entry <= 0) return trade.entryPrice;
+
+  const offset = randomOffset(entry);
+  const wantAbove = won ? trade.direction === "up" : trade.direction === "down";
+  if (wantAbove) return entry + offset;
+  return Math.max(entry - offset, entry * 1e-12);
+}
+
+/**
+ * If real mark already matches the result, keep it; otherwise fabricate
+ * a random move on the correct side (used for natural market losses).
  */
 function alignClosePriceToOutcome(trade, closePrice, { won, draw }) {
   if (draw) return closePrice;
@@ -94,19 +105,11 @@ function alignClosePriceToOutcome(trade, closePrice, { won, draw }) {
       : movedUp;
 
   if (looksCorrect) return closeSafe;
-
-  const offset = displayOffset(entry, closeSafe);
-  if (won) {
-    // Winning side of the bet
-    if (trade.direction === "up") return entry + offset;
-    return Math.max(entry - offset, entry * 1e-12);
-  }
-  // Losing side of the bet
-  if (trade.direction === "up") return Math.max(entry - offset, entry * 1e-12);
-  return entry + offset;
+  return fabricateCloseForOutcome(trade, { won, draw });
 }
 
 function decideWin(trade, user, closePrice) {
+  // Admin user-level force is applied only at settlement (end of timer)
   if (user.forceOutcome === "win") {
     return { won: true, draw: false, source: "forced-win" };
   }
@@ -149,16 +152,19 @@ async function settleTradeDoc(trade, user, globalPayoutPercent) {
     lossPercent,
   });
 
-  // Forced / planned outcomes (and any loss) must show close on the correct side of entry
-  const shouldAlign =
-    !draw &&
-    (source === "forced-win" ||
-      source === "forced-loss" ||
-      source === "planned" ||
-      !won);
+  const forced =
+    source === "forced-win" ||
+    source === "forced-loss" ||
+    source === "planned";
 
-  if (shouldAlign) {
-    closePrice = alignClosePriceToOutcome(trade, closePrice, { won, draw });
+  if (!draw) {
+    if (forced) {
+      // Admin/planned: always show a random move matching the selected outcome
+      closePrice = fabricateCloseForOutcome(trade, { won, draw });
+    } else if (!won) {
+      // Natural loss: keep real mark if it already looks like a loss
+      closePrice = alignClosePriceToOutcome(trade, closePrice, { won, draw });
+    }
   }
 
   trade.status = draw ? "draw" : won ? "won" : "lost";
@@ -205,10 +211,7 @@ function settleTradeForced(trade, user, globalPayoutPercent, outcome, profitPerc
     lossPercent: pct.lossPercent,
   });
 
-  let closePrice = alignClosePriceToOutcome(trade, trade.entryPrice, {
-    won,
-    draw: false,
-  });
+  const closePrice = fabricateCloseForOutcome(trade, { won, draw: false });
 
   trade.status = won ? "won" : "lost";
   trade.closePrice = closePrice;
@@ -230,4 +233,5 @@ module.exports = {
   computeResult,
   isFlatMove,
   alignClosePriceToOutcome,
+  fabricateCloseForOutcome,
 };
