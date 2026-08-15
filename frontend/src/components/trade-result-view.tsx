@@ -7,7 +7,6 @@ import {
   Download,
   Eye,
   Loader2,
-  Sparkles,
   Timer,
   TrendingUp,
   XCircle,
@@ -24,6 +23,9 @@ import {
 import { formatPrice } from "@/services/market-data";
 import { cn } from "@/lib/utils";
 
+const SHARE_FONT = "Arial, Helvetica, sans-serif";
+const SHARE_MONO = "Consolas, 'Courier New', monospace";
+
 type ShareMode = "pnl" | "roi" | "both";
 
 type TradeResultViewProps = {
@@ -34,7 +36,7 @@ type TradeResultViewProps = {
   userInitials?: string;
 };
 
-/** Strip oklch() tokens (nested args / alpha) so html2canvas never parses them. */
+/** Strip oklch() so html2canvas never parses theme colors. */
 function replaceOklch(css: string, fallback = "#888888"): string {
   let out = css;
   let guard = 0;
@@ -44,50 +46,50 @@ function replaceOklch(css: string, fallback = "#888888"): string {
   return out;
 }
 
-/**
- * html2canvas cannot parse oklch() from the app theme.
- * Drop cloned stylesheets and keep only the card's inline hex colors.
- */
-function prepareCloneForCapture(doc: Document) {
+/** Prepare cloned card: no theme CSS, no transforms, crisp system fonts. */
+function prepareCloneForCapture(doc: Document, card: HTMLElement) {
   doc.querySelectorAll('style, link[rel="stylesheet"]').forEach((el) => el.remove());
 
-  doc.querySelectorAll("[style]").forEach((el) => {
-    const style = el.getAttribute("style");
-    if (style && /oklch\(/i.test(style)) {
-      el.setAttribute("style", replaceOklch(style));
-    }
-  });
+  let el: HTMLElement | null = card;
+  while (el) {
+    el.style.transform = "none";
+    el.style.translate = "none";
+    el.style.scale = "none";
+    el.style.rotate = "none";
+    el.style.filter = "none";
+    el.style.backdropFilter = "none";
+    el.style.setProperty("-webkit-backdrop-filter", "none");
+    el.style.boxShadow = "none";
+    el.style.opacity = "1";
+    el = el.parentElement;
+  }
 
-  const card = doc.querySelector(".trade-share-card") as HTMLElement | null;
-  if (!card) return;
-
-  card.style.background = "#1a1610";
-  card.style.backgroundColor = "#1a1610";
-  card.style.color = "#fff7ed";
-  card.style.overflow = "hidden";
-  card.style.borderRadius = "20px";
+  card.style.fontFamily = SHARE_FONT;
+  card.style.setProperty("-webkit-font-smoothing", "antialiased");
+  card.style.setProperty("-moz-osx-font-smoothing", "grayscale");
+  card.style.setProperty("text-rendering", "geometricPrecision");
+  card.style.letterSpacing = "normal";
   card.style.boxShadow = "none";
   card.style.filter = "none";
-  card.style.backdropFilter = "none";
+  card.style.transform = "none";
 
   card.querySelectorAll("*").forEach((node) => {
     if (node instanceof HTMLElement) {
-      node.style.backdropFilter = "none";
-      node.style.setProperty("-webkit-backdrop-filter", "none");
-      node.style.maskImage = "none";
-      node.style.setProperty("-webkit-mask-image", "none");
+      const isMono = (node.getAttribute("style") || "").includes("Consolas");
+      node.style.fontFamily = isMono ? SHARE_MONO : SHARE_FONT;
+      node.style.setProperty("-webkit-font-smoothing", "antialiased");
+      node.style.transform = "none";
       node.style.filter = "none";
       node.style.boxShadow = "none";
+      node.style.backdropFilter = "none";
+      node.style.setProperty("-webkit-backdrop-filter", "none");
+      node.style.textShadow = "none";
       const inline = node.getAttribute("style");
       if (inline && /oklch\(/i.test(inline)) {
         node.setAttribute("style", replaceOklch(inline));
       }
     }
     if (node instanceof SVGElement) {
-      const fill = node.getAttribute("fill");
-      const stroke = node.getAttribute("stroke");
-      if (fill && /oklch\(/i.test(fill)) node.setAttribute("fill", "currentColor");
-      if (stroke && /oklch\(/i.test(stroke)) node.setAttribute("stroke", "currentColor");
       const svgStyle = node.getAttribute("style");
       if (svgStyle && /oklch\(/i.test(svgStyle)) {
         node.setAttribute("style", replaceOklch(svgStyle, "currentColor"));
@@ -145,11 +147,11 @@ export function TradeResultViewDialog({
           .toUpperCase()
       : "ET");
 
-  // Solid hex only — html2canvas-safe (no oklch / no translucent rgba boxes)
-  const accent = positive ? "#34d399" : draw ? "#d6d3d1" : "#fb7185";
-  const accentBg = positive ? "#1e3d34" : draw ? "#2a2622" : "#3f1d24";
-  const chipBg = "#2a241c";
-  const panelBg = "#241e18";
+  // Solid hex only — html2canvas-safe
+  const accent = positive ? "#22c55e" : draw ? "#a8a29e" : "#ef4444";
+  const accentSoft = positive ? "#14532d" : draw ? "#292524" : "#7f1d1d";
+  const statusFg = "#ffffff";
+  const statusBg = positive ? "#16a34a" : draw ? "#57534e" : "#dc2626";
 
   const headline = useMemo(() => {
     if (mode === "roi") {
@@ -163,39 +165,56 @@ export function TradeResultViewDialog({
       return {
         main: formatSignedMoney(pnl),
         sub: null as string | null,
-        label: "PNL · USDT",
+        label: "PNL (USDT)",
       };
     }
     return {
       main: formatSignedMoney(pnl),
       sub: `${formatSignedPct(roi)} ROI`,
-      label: "PNL · USDT",
+      label: "PNL (USDT)",
     };
   }, [mode, pnl, roi]);
 
   const download = async () => {
     if (!cardRef.current) return;
     setDownloading(true);
+    const host = document.createElement("div");
     try {
       const html2canvas = (await import("html2canvas")).default;
-      const node = cardRef.current;
-      const canvas = await html2canvas(node, {
-        backgroundColor: "#1a1610",
+      const source = cardRef.current;
+
+      // Capture off-dialog so modal transforms don't ghost the PNG
+      host.setAttribute(
+        "style",
+        "position:fixed;left:0;top:0;z-index:-1;opacity:0;pointer-events:none;"
+      );
+      const clone = source.cloneNode(true) as HTMLElement;
+      clone.style.width = "360px";
+      clone.style.maxWidth = "360px";
+      clone.style.transform = "none";
+      clone.style.margin = "0";
+      host.appendChild(clone);
+      document.body.appendChild(host);
+
+      // Allow layout before capture
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      const canvas = await html2canvas(clone, {
+        backgroundColor: "#111827",
         scale: 2,
         useCORS: true,
         allowTaint: false,
         logging: false,
         scrollX: 0,
         scrollY: 0,
-        x: 0,
-        y: 0,
-        width: node.offsetWidth,
-        height: node.offsetHeight,
-        windowWidth: node.offsetWidth,
-        windowHeight: node.offsetHeight,
+        width: 360,
+        height: clone.offsetHeight,
+        windowWidth: 360,
+        windowHeight: clone.offsetHeight,
         foreignObjectRendering: false,
-        onclone: (doc) => prepareCloneForCapture(doc),
+        onclone: (doc, el) => prepareCloneForCapture(doc, el as HTMLElement),
       });
+
       const link = document.createElement("a");
       link.download = `evios-trade-${trade.symbol.replace("/", "")}-${trade.id.slice(-6)}.png`;
       link.href = canvas.toDataURL("image/png");
@@ -204,9 +223,18 @@ export function TradeResultViewDialog({
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not download image");
     } finally {
+      host.remove();
       setDownloading(false);
     }
   };
+
+  const dateStr = new Date(when).toLocaleString([], {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -229,190 +257,203 @@ export function TradeResultViewDialog({
         </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
-          <div className="p-2.5 sm:p-5" style={{ background: "#f3ead8" }}>
-            {/* Fixed export width avoids mobile crop / blur artifacts */}
+          <div className="p-3 sm:p-5" style={{ background: "#e7e5e4" }}>
             <div
               ref={cardRef}
-              className="trade-share-card mx-auto overflow-hidden text-white"
+              className="trade-share-card mx-auto overflow-hidden"
               style={{
                 width: 360,
                 maxWidth: "100%",
-                background: "#1a1610",
-                color: "#fff7ed",
-                borderRadius: 20,
                 boxSizing: "border-box",
+                background: "#111827",
+                color: "#f9fafb",
+                borderRadius: 16,
+                fontFamily: SHARE_FONT,
+                WebkitFontSmoothing: "antialiased",
+                lineHeight: 1.35,
               }}
             >
-              <div style={{ position: "relative", padding: "20px 18px 12px" }}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    justifyContent: "space-between",
-                    gap: 12,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+              {/* Header */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  padding: "18px 18px 14px",
+                  borderBottom: "1px solid #1f2937",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                  <div
+                    style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 10,
+                      display: "grid",
+                      placeItems: "center",
+                      flexShrink: 0,
+                      fontWeight: 800,
+                      fontSize: 14,
+                      fontFamily: SHARE_FONT,
+                      color: "#111827",
+                      background: "#fbbf24",
+                    }}
+                  >
+                    {initials}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
                     <div
                       style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 999,
-                        display: "grid",
-                        placeItems: "center",
-                        flexShrink: 0,
-                        fontWeight: 800,
-                        fontSize: 13,
-                        color: "#1a1610",
-                        background: "linear-gradient(135deg, #f0d060, #d4a84b)",
+                        fontSize: 15,
+                        fontWeight: 700,
+                        fontFamily: SHARE_FONT,
+                        color: "#f9fafb",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        maxWidth: 170,
                       }}
                     >
-                      {initials}
+                      {userName || "Evios Trader"}
                     </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontSize: 14,
-                          fontWeight: 700,
-                          lineHeight: 1.35,
-                          color: "#fff7ed",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          maxWidth: 180,
-                        }}
-                      >
-                        {userName || "Evios Trader"}
-                      </div>
-                      <div style={{ marginTop: 2, fontSize: 11, lineHeight: 1.3, color: "#c4b5a0" }}>
-                        {new Date(when).toLocaleString([], {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </div>
+                    <div
+                      style={{
+                        marginTop: 3,
+                        fontSize: 12,
+                        fontFamily: SHARE_FONT,
+                        color: "#9ca3af",
+                      }}
+                    >
+                      {dateStr}
                     </div>
                   </div>
-                  <div
+                </div>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    flexShrink: 0,
+                    borderRadius: 8,
+                    padding: "7px 11px",
+                    fontSize: 12,
+                    fontWeight: 800,
+                    fontFamily: SHARE_FONT,
+                    textTransform: "uppercase",
+                    background: statusBg,
+                    color: statusFg,
+                  }}
+                >
+                  {won ? (
+                    <CheckCircle2 style={{ width: 14, height: 14, color: statusFg }} />
+                  ) : draw ? null : (
+                    <XCircle style={{ width: 14, height: 14, color: statusFg }} />
+                  )}
+                  {won ? "Won" : draw ? "Draw" : "Lost"}
+                </div>
+              </div>
+
+              {/* Body */}
+              <div style={{ padding: "16px 18px 8px" }}>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    fontFamily: SHARE_FONT,
+                    textTransform: "uppercase",
+                    color: "#fbbf24",
+                  }}
+                >
+                  Futures result
+                </div>
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 26,
+                    fontWeight: 800,
+                    fontFamily: SHARE_FONT,
+                    color: "#ffffff",
+                  }}
+                >
+                  {trade.symbol}
+                </div>
+
+                {/* Meta chips */}
+                <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <span
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 4,
-                      flexShrink: 0,
-                      borderRadius: 999,
+                      borderRadius: 8,
                       padding: "6px 10px",
-                      fontSize: 10,
+                      fontSize: 12,
                       fontWeight: 800,
-                      letterSpacing: "0.06em",
+                      fontFamily: SHARE_FONT,
                       textTransform: "uppercase",
-                      background: accentBg,
-                      color: accent,
+                      background: trade.direction === "up" ? "#14532d" : "#7f1d1d",
+                      color: trade.direction === "up" ? "#4ade80" : "#f87171",
                     }}
                   >
-                    {won ? (
-                      <CheckCircle2 style={{ width: 12, height: 12 }} />
-                    ) : draw ? null : (
-                      <XCircle style={{ width: 12, height: 12 }} />
+                    {trade.direction === "up" ? (
+                      <ArrowUp style={{ width: 13, height: 13 }} />
+                    ) : (
+                      <ArrowDown style={{ width: 13, height: 13 }} />
                     )}
-                    {won ? "Won" : draw ? "Draw" : "Lost"}
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 22 }}>
-                  <div
+                    {trade.direction}
+                  </span>
+                  <span
                     style={{
-                      display: "flex",
+                      display: "inline-flex",
                       alignItems: "center",
-                      gap: 6,
-                      fontSize: 10,
+                      gap: 5,
+                      borderRadius: 8,
+                      padding: "6px 10px",
+                      fontSize: 12,
                       fontWeight: 700,
-                      letterSpacing: "0.14em",
-                      textTransform: "uppercase",
-                      color: "#a8946a",
+                      fontFamily: SHARE_FONT,
+                      background: "#1f2937",
+                      color: "#e5e7eb",
                     }}
                   >
-                    <Sparkles style={{ width: 12, height: 12, color: "#e8c56a" }} />
-                    Futures result
-                  </div>
-                  <div
+                    <Timer style={{ width: 13, height: 13 }} />
+                    {trade.durationSec}s
+                  </span>
+                  <span
                     style={{
-                      marginTop: 8,
-                      fontSize: 28,
-                      fontWeight: 900,
-                      lineHeight: 1.15,
-                      letterSpacing: "-0.02em",
-                      color: "#ffffff",
-                      wordBreak: "break-word",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      borderRadius: 8,
+                      padding: "6px 10px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      fontFamily: SHARE_MONO,
+                      background: "#1f2937",
+                      color: "#e5e7eb",
                     }}
                   >
-                    {trade.symbol}
-                  </div>
-                  <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                        borderRadius: 8,
-                        padding: "5px 8px",
-                        fontSize: 11,
-                        fontWeight: 800,
-                        textTransform: "uppercase",
-                        background: trade.direction === "up" ? "#1e3d34" : "#3f1d24",
-                        color: trade.direction === "up" ? "#34d399" : "#fb7185",
-                      }}
-                    >
-                      {trade.direction === "up" ? (
-                        <ArrowUp style={{ width: 12, height: 12 }} />
-                      ) : (
-                        <ArrowDown style={{ width: 12, height: 12 }} />
-                      )}
-                      {trade.direction}
-                    </span>
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                        borderRadius: 8,
-                        padding: "5px 8px",
-                        fontSize: 11,
-                        fontWeight: 600,
-                        background: chipBg,
-                        color: "#d6c4a8",
-                      }}
-                    >
-                      <Timer style={{ width: 12, height: 12 }} />
-                      {trade.durationSec}s
-                    </span>
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        borderRadius: 8,
-                        padding: "5px 8px",
-                        fontSize: 11,
-                        fontWeight: 600,
-                        fontFamily: "ui-monospace, monospace",
-                        background: chipBg,
-                        color: "#d6c4a8",
-                      }}
-                    >
-                      ${trade.stake.toFixed(2)}
-                    </span>
-                  </div>
+                    Stake ${trade.stake.toFixed(2)}
+                  </span>
                 </div>
 
-                <div style={{ marginTop: 24 }}>
+                {/* PNL block */}
+                <div
+                  style={{
+                    marginTop: 18,
+                    borderRadius: 12,
+                    padding: "14px 14px",
+                    background: "#0b1220",
+                    border: `1px solid ${accentSoft}`,
+                  }}
+                >
                   <div
                     style={{
-                      fontSize: 10,
+                      fontSize: 11,
                       fontWeight: 700,
-                      letterSpacing: "0.14em",
+                      fontFamily: SHARE_FONT,
                       textTransform: "uppercase",
-                      color: "#a8946a",
+                      color: "#9ca3af",
                     }}
                   >
                     {headline.label}
@@ -420,10 +461,10 @@ export function TradeResultViewDialog({
                   <div
                     style={{
                       marginTop: 6,
-                      fontSize: 40,
-                      fontWeight: 900,
-                      lineHeight: 1.1,
-                      letterSpacing: "-0.03em",
+                      fontSize: 36,
+                      fontWeight: 800,
+                      fontFamily: SHARE_FONT,
+                      lineHeight: 1.15,
                       color: accent,
                     }}
                   >
@@ -432,15 +473,10 @@ export function TradeResultViewDialog({
                   {headline.sub && (
                     <div
                       style={{
-                        marginTop: 10,
-                        display: "inline-block",
-                        borderRadius: 999,
-                        padding: "6px 10px",
-                        fontSize: 13,
+                        marginTop: 8,
+                        fontSize: 14,
                         fontWeight: 700,
-                        fontFamily: "ui-monospace, monospace",
-                        lineHeight: 1.2,
-                        background: accentBg,
+                        fontFamily: SHARE_MONO,
                         color: accent,
                       }}
                     >
@@ -449,9 +485,10 @@ export function TradeResultViewDialog({
                   )}
                 </div>
 
+                {/* Entry / Close */}
                 <div
                   style={{
-                    marginTop: 22,
+                    marginTop: 14,
                     display: "grid",
                     gridTemplateColumns: "1fr 1fr",
                     gap: 10,
@@ -460,17 +497,17 @@ export function TradeResultViewDialog({
                   <div
                     style={{
                       borderRadius: 12,
-                      padding: "12px 12px",
-                      background: panelBg,
+                      padding: "12px",
+                      background: "#1f2937",
                     }}
                   >
                     <div
                       style={{
-                        fontSize: 10,
-                        fontWeight: 600,
-                        letterSpacing: "0.08em",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        fontFamily: SHARE_FONT,
                         textTransform: "uppercase",
-                        color: "#a8946a",
+                        color: "#9ca3af",
                       }}
                     >
                       Entry
@@ -478,11 +515,10 @@ export function TradeResultViewDialog({
                     <div
                       style={{
                         marginTop: 6,
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: 700,
-                        fontFamily: "ui-monospace, monospace",
-                        lineHeight: 1.3,
-                        color: "#fff7ed",
+                        fontFamily: SHARE_MONO,
+                        color: "#f9fafb",
                         wordBreak: "break-all",
                       }}
                     >
@@ -492,17 +528,17 @@ export function TradeResultViewDialog({
                   <div
                     style={{
                       borderRadius: 12,
-                      padding: "12px 12px",
-                      background: panelBg,
+                      padding: "12px",
+                      background: "#1f2937",
                     }}
                   >
                     <div
                       style={{
-                        fontSize: 10,
-                        fontWeight: 600,
-                        letterSpacing: "0.08em",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        fontFamily: SHARE_FONT,
                         textTransform: "uppercase",
-                        color: "#a8946a",
+                        color: "#9ca3af",
                       }}
                     >
                       Close
@@ -510,68 +546,78 @@ export function TradeResultViewDialog({
                     <div
                       style={{
                         marginTop: 6,
-                        display: "flex",
-                        flexWrap: "wrap",
-                        alignItems: "center",
-                        gap: 6,
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: 700,
-                        fontFamily: "ui-monospace, monospace",
-                        lineHeight: 1.3,
-                        color: "#fff7ed",
+                        fontFamily: SHARE_MONO,
+                        color: "#f9fafb",
+                        wordBreak: "break-all",
                       }}
                     >
-                      <span style={{ wordBreak: "break-all" }}>
-                        {trade.closePrice != null ? `$${formatPrice(trade.closePrice)}` : "—"}
-                      </span>
-                      {priceDelta != null && priceDelta !== 0 && (
+                      {trade.closePrice != null ? `$${formatPrice(trade.closePrice)}` : "—"}
+                      {priceDelta != null && priceDelta !== 0 ? (
                         <span
                           style={{
-                            fontSize: 11,
-                            fontWeight: 700,
-                            color: priceDelta > 0 ? "#34d399" : "#fb7185",
+                            marginLeft: 6,
+                            fontSize: 12,
+                            fontFamily: SHARE_FONT,
+                            color: priceDelta > 0 ? "#22c55e" : "#ef4444",
                           }}
                         >
                           {priceDelta > 0 ? "▲" : "▼"}
                         </span>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 </div>
               </div>
 
+              {/* Footer */}
               <div
                 style={{
-                  marginTop: 8,
+                  marginTop: 12,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
                   gap: 10,
-                  padding: "14px 18px 16px",
-                  borderTop: "1px solid #3a3228",
-                  background: "#15120e",
+                  padding: "14px 18px",
+                  borderTop: "1px solid #1f2937",
+                  background: "#0b1220",
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                   <div
                     style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 10,
+                      width: 34,
+                      height: 34,
+                      borderRadius: 8,
                       display: "grid",
                       placeItems: "center",
                       flexShrink: 0,
-                      background: "linear-gradient(135deg, #f0d060, #d4a84b)",
+                      background: "#fbbf24",
                     }}
                   >
-                    <TrendingUp style={{ width: 18, height: 18, color: "#1a1610" }} />
+                    <TrendingUp style={{ width: 18, height: 18, color: "#111827" }} />
                   </div>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 900, lineHeight: 1.25, color: "#fff7ed" }}>
-                      Evios<span style={{ color: "#f0d060" }}> Trader</span>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 800,
+                        fontFamily: SHARE_FONT,
+                        color: "#f9fafb",
+                      }}
+                    >
+                      Evios <span style={{ color: "#fbbf24" }}>Trader</span>
                     </div>
-                    <div style={{ marginTop: 2, fontSize: 10, lineHeight: 1.3, color: "#a8946a" }}>
-                      Trade smarter · Share proudly
+                    <div
+                      style={{
+                        marginTop: 2,
+                        fontSize: 11,
+                        fontFamily: SHARE_FONT,
+                        color: "#9ca3af",
+                      }}
+                    >
+                      Trade smarter
                     </div>
                   </div>
                 </div>
@@ -579,13 +625,12 @@ export function TradeResultViewDialog({
                   style={{
                     flexShrink: 0,
                     borderRadius: 8,
-                    padding: "6px 8px",
-                    fontSize: 10,
+                    padding: "6px 9px",
+                    fontSize: 11,
                     fontWeight: 700,
-                    fontFamily: "ui-monospace, monospace",
-                    letterSpacing: "0.06em",
-                    background: "#2a241c",
-                    color: "#e8c56a",
+                    fontFamily: SHARE_MONO,
+                    background: "#1f2937",
+                    color: "#fbbf24",
                   }}
                 >
                   #{trade.id.slice(-6).toUpperCase()}
