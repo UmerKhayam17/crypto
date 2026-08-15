@@ -34,9 +34,61 @@ type TradeResultViewProps = {
   userInitials?: string;
 };
 
+function stripOklchInClone(doc: Document) {
+  doc.querySelectorAll("style").forEach((el) => {
+    if (el.textContent?.includes("oklch")) {
+      el.textContent = el.textContent.replace(/oklch\((?:[^()]|\([^)]*\))*\)/gi, "#888888");
+    }
+  });
+  doc.querySelectorAll("[style]").forEach((el) => {
+    const style = el.getAttribute("style");
+    if (style?.includes("oklch")) {
+      el.setAttribute("style", style.replace(/oklch\((?:[^()]|\([^)]*\))*\)/gi, "#888888"));
+    }
+  });
+}
+
+/** Flatten clone styles so html2canvas doesn't break on blur/alpha/radius. */
+function prepareCloneForCapture(doc: Document) {
+  stripOklchInClone(doc);
+  const card = doc.querySelector(".trade-share-card") as HTMLElement | null;
+  if (!card) return;
+  card.style.background = "#1a1610";
+  card.style.color = "#fff7ed";
+  card.style.overflow = "hidden";
+  card.style.borderRadius = "20px";
+  card.querySelectorAll("*").forEach((node) => {
+    if (!(node instanceof HTMLElement)) return;
+    node.style.backdropFilter = "none";
+    node.style.webkitBackdropFilter = "none";
+    node.style.maskImage = "none";
+    node.style.webkitMaskImage = "none";
+    node.style.filter = "none";
+    // Solidify semi-transparent fills that cause checkerboard artifacts
+    const bg = node.style.backgroundColor || "";
+    if (bg.includes("rgba") || node.style.background.includes("rgba")) {
+      // leave explicit solid backgrounds we set; skip complex gradients
+    }
+  });
+}
+
 function roiPercent(trade: BinaryTrade) {
   if (!(trade.stake > 0)) return 0;
   return ((trade.pnl ?? 0) / trade.stake) * 100;
+}
+
+function formatSignedMoney(n: number) {
+  const abs = Math.abs(n).toFixed(2);
+  if (n > 0) return `+$${abs}`;
+  if (n < 0) return `-$${abs}`;
+  return `$${abs}`;
+}
+
+function formatSignedPct(n: number) {
+  const abs = Math.abs(n).toFixed(2);
+  if (n > 0) return `+${abs}%`;
+  if (n < 0) return `-${abs}%`;
+  return `${abs}%`;
 }
 
 export function TradeResultViewDialog({
@@ -54,7 +106,7 @@ export function TradeResultViewDialog({
   const draw = trade.status === "draw";
   const pnl = trade.pnl ?? 0;
   const roi = roiPercent(trade);
-  const positive = pnl >= 0;
+  const positive = pnl > 0 || (pnl === 0 && won);
   const when = trade.resolvedAt || trade.openedAt;
   const priceDelta =
     trade.closePrice != null ? trade.closePrice - trade.entryPrice : null;
@@ -69,24 +121,30 @@ export function TradeResultViewDialog({
           .toUpperCase()
       : "ET");
 
+  // Solid hex only — html2canvas-safe (no oklch / no translucent rgba boxes)
+  const accent = positive ? "#34d399" : draw ? "#d6d3d1" : "#fb7185";
+  const accentBg = positive ? "#1e3d34" : draw ? "#2a2622" : "#3f1d24";
+  const chipBg = "#2a241c";
+  const panelBg = "#241e18";
+
   const headline = useMemo(() => {
     if (mode === "roi") {
       return {
-        main: `${roi >= 0 ? "+" : ""}${roi.toFixed(2)}%`,
+        main: formatSignedPct(roi),
         sub: null as string | null,
         label: "ROI",
       };
     }
     if (mode === "pnl") {
       return {
-        main: `${pnl >= 0 ? "+" : ""}$${Math.abs(pnl).toFixed(2)}`,
+        main: formatSignedMoney(pnl),
         sub: null as string | null,
         label: "PNL · USDT",
       };
     }
     return {
-      main: `${pnl >= 0 ? "+" : ""}$${Math.abs(pnl).toFixed(2)}`,
-      sub: `${roi >= 0 ? "+" : ""}${roi.toFixed(2)}% ROI`,
+      main: formatSignedMoney(pnl),
+      sub: `${formatSignedPct(roi)} ROI`,
       label: "PNL · USDT",
     };
   }, [mode, pnl, roi]);
@@ -96,12 +154,23 @@ export function TradeResultViewDialog({
     setDownloading(true);
     try {
       const html2canvas = (await import("html2canvas")).default;
-      const canvas = await html2canvas(cardRef.current, {
+      const node = cardRef.current;
+      const canvas = await html2canvas(node, {
         backgroundColor: "#1a1610",
-        scale: Math.min(2.5, Math.max(2, window.devicePixelRatio || 2)),
+        scale: 2,
         useCORS: true,
-        width: cardRef.current.offsetWidth,
-        windowWidth: Math.max(cardRef.current.offsetWidth, 360),
+        allowTaint: false,
+        logging: false,
+        scrollX: 0,
+        scrollY: 0,
+        x: 0,
+        y: 0,
+        width: node.offsetWidth,
+        height: node.offsetHeight,
+        windowWidth: node.offsetWidth,
+        windowHeight: node.offsetHeight,
+        foreignObjectRendering: false,
+        onclone: (doc) => prepareCloneForCapture(doc),
       });
       const link = document.createElement("a");
       link.download = `evios-trade-${trade.symbol.replace("/", "")}-${trade.id.slice(-6)}.png`;
@@ -119,13 +188,14 @@ export function TradeResultViewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          "flex max-h-[min(94dvh,920px)] w-[min(100vw-0.75rem,420px)] max-w-[420px] flex-col gap-0 overflow-hidden border-border/50 bg-background p-0",
+          "flex w-[min(100vw-1rem,420px)] max-w-[420px] flex-col gap-0 overflow-hidden border-border/50 bg-background p-0",
+          "max-h-[min(90dvh,920px)]",
           "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
           "rounded-xl sm:rounded-2xl",
-          "pb-[env(safe-area-inset-bottom)]"
+          "pb-[max(0.25rem,env(safe-area-inset-bottom))]"
         )}
       >
-        <DialogHeader className="shrink-0 border-b border-border/50 px-3 py-3 sm:px-4 sm:py-3.5">
+        <DialogHeader className="shrink-0 border-b border-border/50 px-3 py-2.5 sm:px-4 sm:py-3.5">
           <DialogTitle className="flex items-center gap-2 pr-8 text-sm font-bold tracking-tight sm:text-base">
             <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
               <Eye className="h-3.5 w-3.5" />
@@ -134,56 +204,63 @@ export function TradeResultViewDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <div
-            className="p-3 sm:p-5"
-            style={{
-              background:
-                "radial-gradient(ellipse 80% 60% at 50% 0%, oklch(0.88 0.1 85 / 0.18), transparent 60%), oklch(0.94 0.03 95)",
-            }}
-          >
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
+          <div className="p-2.5 sm:p-5" style={{ background: "#f3ead8" }}>
+            {/* Fixed export width avoids mobile crop / blur artifacts */}
             <div
               ref={cardRef}
-              className="trade-share-card relative mx-auto w-full max-w-[380px] overflow-hidden rounded-[1.1rem] text-white shadow-[0_24px_60px_-28px_rgba(40,28,10,0.65)] sm:rounded-[1.35rem]"
-              style={{ background: "#1a1610" }}
+              className="trade-share-card mx-auto overflow-hidden text-white"
+              style={{
+                width: 360,
+                maxWidth: "100%",
+                background: "#1a1610",
+                color: "#fff7ed",
+                borderRadius: 20,
+                boxSizing: "border-box",
+              }}
             >
-              {/* Atmosphere */}
-              <div
-                className="pointer-events-none absolute inset-0"
-                style={{
-                  background: positive
-                    ? "radial-gradient(ellipse 90% 70% at 15% -10%, oklch(0.78 0.16 85 / 0.35), transparent 55%), radial-gradient(ellipse 70% 50% at 100% 100%, oklch(0.62 0.14 155 / 0.18), transparent 50%)"
-                    : "radial-gradient(ellipse 90% 70% at 15% -10%, oklch(0.58 0.18 25 / 0.28), transparent 55%), radial-gradient(ellipse 70% 50% at 100% 100%, oklch(0.45 0.08 40 / 0.2), transparent 50%)",
-                }}
-              />
-              <div
-                className="pointer-events-none absolute inset-0 opacity-[0.09]"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(rgba(255,220,140,0.35) 1px, transparent 1px), linear-gradient(90deg, rgba(255,220,140,0.35) 1px, transparent 1px)",
-                  backgroundSize: "28px 28px",
-                  maskImage: "radial-gradient(ellipse at center, black 20%, transparent 75%)",
-                }}
-              />
-              <div className="pointer-events-none absolute -right-6 top-12 opacity-[0.08] sm:-right-8 sm:top-16">
-                <TrendingUp className="h-32 w-32 text-amber-200 sm:h-44 sm:w-44" strokeWidth={1} />
-              </div>
-
-              <div className="relative px-3.5 pb-1.5 pt-4 sm:px-5 sm:pb-2 sm:pt-5">
-                {/* Top bar */}
-                <div className="flex items-start justify-between gap-2 sm:gap-3">
-                  <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+              <div style={{ position: "relative", padding: "20px 18px 12px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: 12,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                     <div
-                      className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-xs font-extrabold text-[#1a1610] shadow-[0_0_24px_-4px_rgba(245,197,66,0.55)] sm:h-11 sm:w-11 sm:text-sm"
-                      style={{ background: "var(--gradient-emerald)" }}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 999,
+                        display: "grid",
+                        placeItems: "center",
+                        flexShrink: 0,
+                        fontWeight: 800,
+                        fontSize: 13,
+                        color: "#1a1610",
+                        background: "linear-gradient(135deg, #f0d060, #d4a84b)",
+                      }}
                     >
                       {initials}
                     </div>
-                    <div className="min-w-0">
-                      <div className="truncate text-[13px] font-bold tracking-tight text-amber-50 sm:text-[15px]">
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 700,
+                          lineHeight: 1.35,
+                          color: "#fff7ed",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          maxWidth: 180,
+                        }}
+                      >
                         {userName || "Evios Trader"}
                       </div>
-                      <div className="mt-0.5 text-[10px] text-amber-100/55 sm:text-[11px]">
+                      <div style={{ marginTop: 2, fontSize: 11, lineHeight: 1.3, color: "#c4b5a0" }}>
                         {new Date(when).toLocaleString([], {
                           year: "numeric",
                           month: "short",
@@ -195,112 +272,241 @@ export function TradeResultViewDialog({
                     </div>
                   </div>
                   <div
-                    className={cn(
-                      "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[9px] font-extrabold uppercase tracking-wider sm:gap-1.5 sm:px-2.5 sm:text-[10px]",
-                      won
-                        ? "bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/35"
-                        : draw
-                          ? "bg-white/10 text-white/70 ring-1 ring-white/20"
-                          : "bg-rose-400/15 text-rose-300 ring-1 ring-rose-400/35"
-                    )}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      flexShrink: 0,
+                      borderRadius: 999,
+                      padding: "6px 10px",
+                      fontSize: 10,
+                      fontWeight: 800,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      background: accentBg,
+                      color: accent,
+                    }}
                   >
-                    {won ? <CheckCircle2 className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> : draw ? null : <XCircle className="h-3 w-3 sm:h-3.5 sm:w-3.5" />}
+                    {won ? (
+                      <CheckCircle2 style={{ width: 12, height: 12 }} />
+                    ) : draw ? null : (
+                      <XCircle style={{ width: 12, height: 12 }} />
+                    )}
                     {won ? "Won" : draw ? "Draw" : "Lost"}
                   </div>
                 </div>
 
-                {/* Symbol block */}
-                <div className="mt-5 sm:mt-7">
-                  <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[0.16em] text-amber-200/50 sm:gap-2 sm:text-[10px] sm:tracking-[0.18em]">
-                    <Sparkles className="h-3 w-3 text-amber-300/70" />
+                <div style={{ marginTop: 22 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: "0.14em",
+                      textTransform: "uppercase",
+                      color: "#a8946a",
+                    }}
+                  >
+                    <Sparkles style={{ width: 12, height: 12, color: "#e8c56a" }} />
                     Futures result
                   </div>
-                  <div className="mt-1.5 break-all text-[clamp(1.35rem,5.5vw,1.75rem)] font-black leading-none tracking-tight text-white">
+                  <div
+                    style={{
+                      marginTop: 8,
+                      fontSize: 28,
+                      fontWeight: 900,
+                      lineHeight: 1.15,
+                      letterSpacing: "-0.02em",
+                      color: "#ffffff",
+                      wordBreak: "break-word",
+                    }}
+                  >
                     {trade.symbol}
                   </div>
-                  <div className="mt-2.5 flex flex-wrap items-center gap-1.5 sm:mt-3 sm:gap-2">
+                  <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
                     <span
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide sm:px-2 sm:py-1 sm:text-[11px]",
-                        trade.direction === "up"
-                          ? "bg-emerald-400/15 text-emerald-300"
-                          : "bg-rose-400/15 text-rose-300"
-                      )}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        borderRadius: 8,
+                        padding: "5px 8px",
+                        fontSize: 11,
+                        fontWeight: 800,
+                        textTransform: "uppercase",
+                        background: trade.direction === "up" ? "#1e3d34" : "#3f1d24",
+                        color: trade.direction === "up" ? "#34d399" : "#fb7185",
+                      }}
                     >
                       {trade.direction === "up" ? (
-                        <ArrowUp className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                        <ArrowUp style={{ width: 12, height: 12 }} />
                       ) : (
-                        <ArrowDown className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                        <ArrowDown style={{ width: 12, height: 12 }} />
                       )}
                       {trade.direction}
                     </span>
-                    <span className="inline-flex items-center gap-1 rounded-md bg-white/5 px-1.5 py-0.5 text-[10px] font-semibold text-amber-100/70 ring-1 ring-white/10 sm:px-2 sm:py-1 sm:text-[11px]">
-                      <Timer className="h-3 w-3" />
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        borderRadius: 8,
+                        padding: "5px 8px",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        background: chipBg,
+                        color: "#d6c4a8",
+                      }}
+                    >
+                      <Timer style={{ width: 12, height: 12 }} />
                       {trade.durationSec}s
                     </span>
-                    <span className="inline-flex items-center rounded-md bg-white/5 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-amber-100/70 ring-1 ring-white/10 sm:px-2 sm:py-1 sm:text-[11px]">
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        borderRadius: 8,
+                        padding: "5px 8px",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        fontFamily: "ui-monospace, monospace",
+                        background: chipBg,
+                        color: "#d6c4a8",
+                      }}
+                    >
                       ${trade.stake.toFixed(2)}
                     </span>
                   </div>
                 </div>
 
-                {/* Big PNL */}
-                <div className="mt-5 sm:mt-8">
-                  <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-amber-200/45 sm:text-[10px] sm:tracking-[0.16em]">
+                <div style={{ marginTop: 24 }}>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: "0.14em",
+                      textTransform: "uppercase",
+                      color: "#a8946a",
+                    }}
+                  >
                     {headline.label}
                   </div>
                   <div
-                    className={cn(
-                      "mt-1 font-black leading-[1.05] tracking-tight",
-                      "text-[clamp(1.85rem,9vw,2.85rem)]",
-                      positive ? "text-emerald-300" : "text-rose-300"
-                    )}
-                    style={
-                      positive
-                        ? { textShadow: "0 0 40px rgba(52, 211, 153, 0.35)" }
-                        : { textShadow: "0 0 40px rgba(251, 113, 133, 0.3)" }
-                    }
+                    style={{
+                      marginTop: 6,
+                      fontSize: 40,
+                      fontWeight: 900,
+                      lineHeight: 1.1,
+                      letterSpacing: "-0.03em",
+                      color: accent,
+                    }}
                   >
                     {headline.main}
                   </div>
                   {headline.sub && (
                     <div
-                      className={cn(
-                        "mt-2 inline-flex max-w-full items-center truncate rounded-full px-2 py-0.5 text-xs font-bold font-mono sm:px-2.5 sm:py-1 sm:text-sm",
-                        positive
-                          ? "bg-emerald-400/10 text-emerald-300"
-                          : "bg-rose-400/10 text-rose-300"
-                      )}
+                      style={{
+                        marginTop: 10,
+                        display: "inline-block",
+                        borderRadius: 999,
+                        padding: "6px 10px",
+                        fontSize: 13,
+                        fontWeight: 700,
+                        fontFamily: "ui-monospace, monospace",
+                        lineHeight: 1.2,
+                        background: accentBg,
+                        color: accent,
+                      }}
                     >
                       {headline.sub}
                     </div>
                   )}
                 </div>
 
-                {/* Prices */}
-                <div className="mt-5 grid grid-cols-2 gap-2 sm:mt-8 sm:gap-2.5">
-                  <div className="min-w-0 rounded-xl bg-white/[0.04] px-2.5 py-2.5 ring-1 ring-white/10 backdrop-blur-sm sm:px-3.5 sm:py-3">
-                    <div className="text-[9px] font-semibold uppercase tracking-wider text-amber-100/45 sm:text-[10px]">
+                <div
+                  style={{
+                    marginTop: 22,
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 10,
+                  }}
+                >
+                  <div
+                    style={{
+                      borderRadius: 12,
+                      padding: "12px 12px",
+                      background: panelBg,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "#a8946a",
+                      }}
+                    >
                       Entry
                     </div>
-                    <div className="mt-1 break-all font-mono text-[12px] font-bold text-amber-50 sm:text-[15px]">
+                    <div
+                      style={{
+                        marginTop: 6,
+                        fontSize: 14,
+                        fontWeight: 700,
+                        fontFamily: "ui-monospace, monospace",
+                        lineHeight: 1.3,
+                        color: "#fff7ed",
+                        wordBreak: "break-all",
+                      }}
+                    >
                       ${formatPrice(trade.entryPrice)}
                     </div>
                   </div>
-                  <div className="min-w-0 rounded-xl bg-white/[0.04] px-2.5 py-2.5 ring-1 ring-white/10 backdrop-blur-sm sm:px-3.5 sm:py-3">
-                    <div className="text-[9px] font-semibold uppercase tracking-wider text-amber-100/45 sm:text-[10px]">
+                  <div
+                    style={{
+                      borderRadius: 12,
+                      padding: "12px 12px",
+                      background: panelBg,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "#a8946a",
+                      }}
+                    >
                       Close
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-1 font-mono text-[12px] font-bold text-amber-50 sm:gap-1.5 sm:text-[15px]">
-                      <span className="break-all">
+                    <div
+                      style={{
+                        marginTop: 6,
+                        display: "flex",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                        gap: 6,
+                        fontSize: 14,
+                        fontWeight: 700,
+                        fontFamily: "ui-monospace, monospace",
+                        lineHeight: 1.3,
+                        color: "#fff7ed",
+                      }}
+                    >
+                      <span style={{ wordBreak: "break-all" }}>
                         {trade.closePrice != null ? `$${formatPrice(trade.closePrice)}` : "—"}
                       </span>
                       {priceDelta != null && priceDelta !== 0 && (
                         <span
-                          className={cn(
-                            "text-[10px] font-bold",
-                            priceDelta > 0 ? "text-emerald-300" : "text-rose-300"
-                          )}
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: priceDelta > 0 ? "#34d399" : "#fb7185",
+                          }}
                         >
                           {priceDelta > 0 ? "▲" : "▼"}
                         </span>
@@ -310,40 +516,61 @@ export function TradeResultViewDialog({
                 </div>
               </div>
 
-              {/* Brand footer */}
               <div
-                className="relative mt-4 flex items-center justify-between gap-2 border-t border-amber-200/10 px-3.5 py-3 sm:mt-6 sm:gap-3 sm:px-5 sm:py-4"
                 style={{
-                  background:
-                    "linear-gradient(90deg, oklch(0.28 0.05 75 / 0.55), oklch(0.2 0.03 70 / 0.2))",
+                  marginTop: 8,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                  padding: "14px 18px 16px",
+                  borderTop: "1px solid #3a3228",
+                  background: "#15120e",
                 }}
               >
-                <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
+                <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                   <div
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg shadow-[0_8px_20px_-8px_rgba(245,197,66,0.7)] sm:h-10 sm:w-10 sm:rounded-xl"
-                    style={{ background: "var(--gradient-emerald)" }}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 10,
+                      display: "grid",
+                      placeItems: "center",
+                      flexShrink: 0,
+                      background: "linear-gradient(135deg, #f0d060, #d4a84b)",
+                    }}
                   >
-                    <TrendingUp className="h-4 w-4 text-[#1a1610] sm:h-5 sm:w-5" />
+                    <TrendingUp style={{ width: 18, height: 18, color: "#1a1610" }} />
                   </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-[13px] font-black tracking-tight text-amber-50 sm:text-[15px]">
-                      Evios<span className="text-amber-300"> Trader</span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 900, lineHeight: 1.25, color: "#fff7ed" }}>
+                      Evios<span style={{ color: "#f0d060" }}> Trader</span>
                     </div>
-                    <div className="truncate text-[10px] font-medium text-amber-100/45 sm:block">
+                    <div style={{ marginTop: 2, fontSize: 10, lineHeight: 1.3, color: "#a8946a" }}>
                       Trade smarter · Share proudly
                     </div>
                   </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  <div className="rounded-lg bg-amber-300/10 px-1.5 py-1 font-mono text-[9px] font-bold tracking-wider text-amber-200/80 ring-1 ring-amber-300/20 sm:px-2 sm:text-[10px]">
-                    #{trade.id.slice(-6).toUpperCase()}
-                  </div>
+                <div
+                  style={{
+                    flexShrink: 0,
+                    borderRadius: 8,
+                    padding: "6px 8px",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    fontFamily: "ui-monospace, monospace",
+                    letterSpacing: "0.06em",
+                    background: "#2a241c",
+                    color: "#e8c56a",
+                  }}
+                >
+                  #{trade.id.slice(-6).toUpperCase()}
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="space-y-2.5 border-t border-border/50 px-3 py-3.5 sm:space-y-3 sm:px-4 sm:py-4">
+          <div className="space-y-2 border-t border-border/50 px-3 py-3 sm:space-y-3 sm:px-4 sm:py-4">
             <div className="text-xs font-semibold text-muted-foreground">Select information</div>
             <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
               {(
@@ -360,7 +587,7 @@ export function TradeResultViewDialog({
                   className={cn(
                     "rounded-xl border px-1.5 py-2 text-[11px] font-bold transition-all sm:px-2 sm:py-2.5 sm:text-xs",
                     mode === opt.key
-                      ? "border-primary bg-primary text-primary-foreground shadow-[0_8px_20px_-10px_oklch(0.78_0.155_85/0.8)]"
+                      ? "border-primary bg-primary text-primary-foreground"
                       : "border-border/70 bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground"
                   )}
                 >
@@ -371,7 +598,7 @@ export function TradeResultViewDialog({
           </div>
         </div>
 
-        <DialogFooter className="shrink-0 gap-2 border-t border-border/50 bg-muted/20 px-3 py-3 sm:flex-row sm:justify-between sm:space-x-0 sm:px-4 sm:py-3.5">
+        <DialogFooter className="shrink-0 gap-2 border-t border-border/50 bg-muted/20 px-3 py-2.5 sm:flex-row sm:justify-between sm:space-x-0 sm:px-4 sm:py-3.5">
           <Button
             type="button"
             variant="outline"
@@ -382,7 +609,7 @@ export function TradeResultViewDialog({
           </Button>
           <Button
             type="button"
-            className="h-10 w-full rounded-xl bg-primary text-primary-foreground shadow-[0_10px_28px_-12px_oklch(0.78_0.155_85/0.85)] hover:opacity-95 sm:h-9 sm:w-auto"
+            className="h-10 w-full rounded-xl bg-primary text-primary-foreground hover:opacity-95 sm:h-9 sm:w-auto"
             disabled={downloading}
             onClick={() => void download()}
           >
@@ -399,7 +626,6 @@ export function TradeResultViewDialog({
   );
 }
 
-/** Compact View button for tables */
 export function TradeViewButton({
   onClick,
   className,
