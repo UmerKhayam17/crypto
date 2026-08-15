@@ -48,31 +48,61 @@ function isFlatMove(entryPrice, closePrice) {
   return moved <= Math.max(1e-8, entry * 1e-8);
 }
 
-/** One "point" size by price magnitude so 10 points is visible on the trade history. */
+/** One "point" size by price magnitude so a nudge is visible on trade history. */
 function pointSize(price) {
   const p = Number(price);
   if (!Number.isFinite(p) || p <= 0) return 1e-8;
   if (p >= 1000) return 0.01; // BTC: 10 points = $0.10
-  if (p >= 1) return 0.0001; // SOL etc: 10 points = 0.001
-  if (p >= 0.01) return 0.000001; // DOGE etc: 10 points = 0.00001
+  if (p >= 1) return 0.0001; // SOL / LINK etc: 10 points = 0.001
+  if (p >= 0.01) return 0.000001;
   return 1e-8;
 }
 
-/**
- * When a loss settles with entry ≈ close, nudge close 10 points against the trade
- * so the history clearly shows why it lost.
- * UP loss → close below entry; DOWN loss → close above entry.
- */
-function closePriceForLossDisplay(trade, closePrice) {
-  const entry = Number(trade.entryPrice);
-  const close = Number(closePrice);
-  if (!Number.isFinite(entry) || entry <= 0) return closePrice;
-  if (!isFlatMove(entry, close)) return close;
+function displayOffset(entry, close) {
+  const entryN = Number(entry);
+  const closeN = Number(close);
+  const min = 10 * pointSize(entryN);
+  if (!Number.isFinite(closeN)) return min;
+  const delta = Math.abs(closeN - entryN);
+  return Math.max(min, delta || 0);
+}
 
-  const offset = 10 * pointSize(entry);
-  if (trade.direction === "up") {
+/**
+ * Make close price visually match the result:
+ * - UP loss  → close below entry
+ * - DOWN loss → close above entry
+ * - UP win   → close above entry
+ * - DOWN win → close below entry
+ * Used when admin forces outcome, or when real mark contradicts the settled result.
+ */
+function alignClosePriceToOutcome(trade, closePrice, { won, draw }) {
+  if (draw) return closePrice;
+  const entry = Number(trade.entryPrice);
+  if (!Number.isFinite(entry) || entry <= 0) return closePrice;
+
+  const close = Number(closePrice);
+  const closeSafe = Number.isFinite(close) ? close : entry;
+  const movedUp = closeSafe > entry && !isFlatMove(entry, closeSafe);
+  const movedDown = closeSafe < entry && !isFlatMove(entry, closeSafe);
+
+  const looksCorrect = won
+    ? trade.direction === "up"
+      ? movedUp
+      : movedDown
+    : trade.direction === "up"
+      ? movedDown
+      : movedUp;
+
+  if (looksCorrect) return closeSafe;
+
+  const offset = displayOffset(entry, closeSafe);
+  if (won) {
+    // Winning side of the bet
+    if (trade.direction === "up") return entry + offset;
     return Math.max(entry - offset, entry * 1e-12);
   }
+  // Losing side of the bet
+  if (trade.direction === "up") return Math.max(entry - offset, entry * 1e-12);
   return entry + offset;
 }
 
@@ -119,8 +149,16 @@ async function settleTradeDoc(trade, user, globalPayoutPercent) {
     lossPercent,
   });
 
-  if (!won && !draw) {
-    closePrice = closePriceForLossDisplay(trade, closePrice);
+  // Forced / planned outcomes (and any loss) must show close on the correct side of entry
+  const shouldAlign =
+    !draw &&
+    (source === "forced-win" ||
+      source === "forced-loss" ||
+      source === "planned" ||
+      !won);
+
+  if (shouldAlign) {
+    closePrice = alignClosePriceToOutcome(trade, closePrice, { won, draw });
   }
 
   trade.status = draw ? "draw" : won ? "won" : "lost";
@@ -167,10 +205,10 @@ function settleTradeForced(trade, user, globalPayoutPercent, outcome, profitPerc
     lossPercent: pct.lossPercent,
   });
 
-  let closePrice = trade.entryPrice;
-  if (!won) {
-    closePrice = closePriceForLossDisplay(trade, trade.entryPrice);
-  }
+  let closePrice = alignClosePriceToOutcome(trade, trade.entryPrice, {
+    won,
+    draw: false,
+  });
 
   trade.status = won ? "won" : "lost";
   trade.closePrice = closePrice;
@@ -191,4 +229,5 @@ module.exports = {
   pickPercents,
   computeResult,
   isFlatMove,
+  alignClosePriceToOutcome,
 };
