@@ -231,9 +231,11 @@ function AdminDashboard() {
         <Sidebar collapsible="icon" className="border-r border-border/60">
           <SidebarHeader className="border-b border-border/60">
             <div className="flex items-center gap-3 px-2 py-3">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-primary to-primary/40 shadow-[0_6px_20px_-6px_var(--color-primary)]">
-                <Shield className="h-4 w-4 text-primary-foreground" />
-              </div>
+              <img
+                src="/logo.png"
+                alt="Evios Trader"
+                className="h-9 w-9 shrink-0 rounded-lg object-cover shadow-[0_6px_20px_-6px_var(--color-primary)]"
+              />
               <div className="min-w-0 group-data-[collapsible=icon]:hidden">
                 <div className="truncate text-sm font-bold leading-tight">Evios Trader</div>
                 <div className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">Control Center</div>

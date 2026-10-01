@@ -1,6 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  TrendingUp,
   User as UserIcon,
   ShieldCheck,
   Wallet,
@@ -80,9 +79,11 @@ export function SiteHeader() {
       <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-3 sm:h-16 sm:px-6">
         <Link to="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg sm:h-9 sm:w-9" style={{ background: "var(--gradient-emerald)" }}>
-            <TrendingUp className="h-4 w-4 text-primary-foreground sm:h-5 sm:w-5" />
-          </div>
+          <img
+            src="/logo.png"
+            alt="Evios Trader"
+            className="h-8 w-8 rounded-lg object-cover sm:h-9 sm:w-9"
+          />
           <span className="text-base font-bold tracking-tight sm:text-lg">
             Evios<span className="text-primary"> Trader</span>
           </span>
