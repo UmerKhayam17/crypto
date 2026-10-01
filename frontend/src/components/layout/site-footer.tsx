@@ -1,14 +1,10 @@
-import { TrendingUp } from "lucide-react";
-
 export function SiteFooter() {
   return (
     <footer className="hidden border-t border-border/60 bg-card/40 md:block">
       <div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-4">
         <div>
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: "var(--gradient-emerald)" }}>
-              <TrendingUp className="h-4 w-4 text-primary-foreground" />
-            </div>
+            <img src="/logo.png" alt="Evios Trader" className="h-8 w-8 rounded-lg object-cover" />
             <span className="font-bold">Evios Trader</span>
           </div>
           <p className="mt-3 text-sm text-muted-foreground">Trade crypto, forex and stocks on a unified premium platform.</p>
