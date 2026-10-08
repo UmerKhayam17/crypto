@@ -49,6 +49,12 @@ const userSchema = new mongoose.Schema(
       enum: ["random", "win", "lose"],
       default: "random",
     },
+    vipLevel: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 6,
+    },
     profitPercent: { type: Number, default: null },
     lossPercent: { type: Number, default: 100 },
     kyc: { type: kycSchema, default: () => ({ status: "none" }) },

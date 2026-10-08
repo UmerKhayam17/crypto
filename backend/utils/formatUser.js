@@ -27,6 +27,7 @@ function formatUser(user, opts = {}) {
     country: json.country,
     role: json.role,
     suspended: json.suspended,
+    vipLevel: Number.isFinite(Number(json.vipLevel)) ? Number(json.vipLevel) : 0,
     kyc: json.kyc,
     createdAt: new Date(json.createdAt).getTime(),
     wallet: json.wallet,

@@ -87,6 +87,13 @@ export async function apiUpdateUserProfile(
   });
 }
 
+export async function apiSetVipLevel(userId: string, vipLevel: number): Promise<{ ok: boolean; msg: string; user: ApiUser }> {
+  return request(`/api/users/${userId}/vip-level`, {
+    method: "PATCH",
+    body: JSON.stringify({ vipLevel }),
+  });
+}
+
 export async function apiDeleteUser(userId: string): Promise<{ ok: boolean; msg: string }> {
   return request(`/api/users/${userId}`, { method: "DELETE" });
 }

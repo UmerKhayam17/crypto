@@ -28,6 +28,7 @@ import { mediaUrl } from "@/lib/media-url";
 import { apiListVipClaims, type VipClaim } from "@/services/vip";
 import { SupportInbox } from "@/components/support-inbox";
 import { apiListSupportThreads } from "@/services/support";
+import { getAccountLevelOptions } from "@/utils/account-level";
 import { TRADE_DURATIONS, profitPercentForDuration } from "@/constants/roles";
 import { TradeResultViewDialog, TradeViewButton } from "@/components/trade-result-view";
 
@@ -56,7 +57,7 @@ function AdminDashboard() {
     isAdmin, staffMe,
     allUsers, managedUsers, managedTrades, managedDeposits, managedWithdrawals,
     allTrades, walletsByUser, assets, allDeposits, allWithdrawals, walletAddress, allStaff, payoutPercent, spotFeePercent,
-    adminSuspendUser, adminAdjustBalance, adminSetBalance, adminDeleteUser, adminUpdateUser,
+    adminSuspendUser, adminAdjustBalance, adminSetBalance, adminSetVipLevel, adminDeleteUser, adminUpdateUser,
     adminSetForceOutcome, adminPlanTrade, adminForceCloseTrade, adminDeleteTrade, adminClearTrades,
     adminApproveKyc, adminRejectKyc,
     adminCreateStaff, adminUpdateStaff, adminDeleteStaff, loadStaff, loadUsers, adminAssignStaff,
@@ -362,6 +363,27 @@ function AdminDashboard() {
                       <option value="">Unassigned</option>
                       {allStaff.map((s) => (
                         <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  ),
+                } satisfies AdminColumn<User>] : []),
+                ...(isAdmin ? [{
+                  key: "vipLevel",
+                  header: "VIP Level",
+                  hideOnMobile: true,
+                  cell: (u: User) => (
+                    <select
+                      value={String(u.vipLevel ?? 0)}
+                      onChange={async (e) => {
+                        const vipLevel = Number(e.target.value);
+                        const r = await adminSetVipLevel(u.id, vipLevel);
+                        if (r.ok) toast.success(r.msg);
+                        else toast.error(r.msg);
+                      }}
+                      className="h-7 max-w-[9rem] rounded border border-border bg-input px-1.5 text-xs"
+                    >
+                      {getAccountLevelOptions().map((option) => (
+                        <option key={option.level} value={String(option.level)}>{option.label}</option>
                       ))}
                     </select>
                   ),

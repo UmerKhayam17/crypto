@@ -26,6 +26,7 @@ import {
   apiAdjustBalance,
   apiSetBalance,
   apiUpdateUserProfile,
+  apiSetVipLevel,
   apiDeleteUser,
 } from "@/services/users";
 import { apiApproveKyc, apiRejectKyc, apiSubmitKyc } from "@/services/kyc";
@@ -95,6 +96,7 @@ export type User = {
   assignedStaffName?: string | null;
   createdAt: number;
   suspended?: boolean;
+  vipLevel: number;
   kyc: Kyc;
   forceOutcome: ForceOutcome;
   profitPercent?: number | null;
@@ -285,6 +287,7 @@ type Store = {
   adminSuspendUser: (userId: string, suspended: boolean) => Promise<{ ok: boolean; msg: string }>;
   adminAdjustBalance: (userId: string, delta: number) => Promise<{ ok: boolean; msg: string }>;
   adminSetBalance: (userId: string, balance: number) => Promise<{ ok: boolean; msg: string }>;
+  adminSetVipLevel: (userId: string, vipLevel: number) => Promise<{ ok: boolean; msg: string }>;
   adminDeleteUser: (userId: string) => Promise<{ ok: boolean; msg: string }>;
   adminUpdateUser: (userId: string, patch: { fname?: string; lname?: string; email?: string; phone?: string; country?: string }) => Promise<{ ok: boolean; msg: string }>;
   adminSetForceOutcome: (
@@ -394,6 +397,7 @@ function apiUserToStoreUser(u: ApiUser): User {
     assignedStaffName: u.assignedStaffName ?? null,
     createdAt: u.createdAt,
     suspended: u.suspended,
+    vipLevel: u.vipLevel ?? 0,
     kyc: u.kyc,
     forceOutcome: u.forceOutcome ?? "random",
     profitPercent: u.profitPercent ?? null,
@@ -981,6 +985,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: true, msg: "User deleted" };
     } catch (err) {
       return { ok: false, msg: err instanceof Error ? err.message : "Could not delete user" };
+    }
+  };
+  const adminSetVipLevel: Store["adminSetVipLevel"] = async (userId, vipLevel) => {
+    try {
+      const data = await apiSetVipLevel(userId, vipLevel);
+      const mapped = apiUserToStoreUser(data.user);
+      setUsers((xs) => xs.map((u) => (u.id === userId ? { ...u, ...mapped } : u)));
+      audit("user.vip-level", `Set ${userNameOf(userId)}'s account level to ${vipLevel === 0 ? "Basic" : `VIP ${vipLevel}`}`, userId);
+      return { ok: true, msg: data.msg || "Account level updated" };
+    } catch (err) {
+      return { ok: false, msg: err instanceof Error ? err.message : "Could not update account level" };
     }
   };
   const adminUpdateUser: Store["adminUpdateUser"] = async (userId, patch) => {
@@ -1616,7 +1631,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     walletsByUser: wallets,
     loadUsers,
     adminAssignStaff,
-    adminSuspendUser, adminAdjustBalance, adminSetBalance, adminDeleteUser, adminUpdateUser,
+    adminSuspendUser, adminAdjustBalance, adminSetBalance, adminSetVipLevel, adminDeleteUser, adminUpdateUser,
     adminSetForceOutcome, adminPlanTrade, adminForceCloseTrade, adminDeleteTrade, adminClearTrades,
     adminApproveKyc, adminRejectKyc,
     allStaff: staff, loadStaff, adminCreateStaff, adminUpdateStaff, adminDeleteStaff,

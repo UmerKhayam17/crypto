@@ -74,6 +74,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.get("/api/media/:filename", serveMedia);
+app.get("/uploads/:filename", serveMedia);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/staff", staffRoutes);

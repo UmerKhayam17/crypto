@@ -73,6 +73,41 @@ exports.assignStaff = async (req, res) => {
   }
 };
 
+exports.setVipLevel = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ ok: false, msg: "Admin access required" });
+    }
+
+    const platformUser = await User.findOne({ _id: req.params.id, role: "user" });
+    if (!platformUser) {
+      return res.status(404).json({ ok: false, msg: "User not found" });
+    }
+
+    const requestedLevel = Number(req.body?.vipLevel ?? req.body?.level ?? 0);
+    const allowed = [0, 1, 2, 3, 4, 5, 6];
+    if (!allowed.includes(requestedLevel)) {
+      return res.status(400).json({ ok: false, msg: "Invalid VIP level" });
+    }
+
+    platformUser.vipLevel = requestedLevel;
+    await platformUser.save();
+    await platformUser.populate("assignedStaff", "fname lname");
+
+    const formatted = formatUser(platformUser, { staff: true });
+    notify.userUpdated(formatted);
+
+    return res.json({
+      ok: true,
+      msg: requestedLevel === 0 ? "Account level reset to Basic" : `Account level set to VIP ${requestedLevel}`,
+      user: formatted,
+    });
+  } catch (err) {
+    console.error("Set VIP level error:", err);
+    return res.status(500).json({ ok: false, msg: "Could not update account level" });
+  }
+};
+
 exports.updateTradeControl = async (req, res) => {
   try {
     const platformUser = await User.findOne({ _id: req.params.id, role: "user" });
