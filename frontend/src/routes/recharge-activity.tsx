@@ -15,6 +15,7 @@ import {
   type VipStatusResponse,
   type VipTierStatus,
 } from "@/services/vip";
+import { getAccountLevelLabel } from "@/utils/account-level";
 
 export default function RechargeActivityPage() {
   return (
@@ -79,6 +80,8 @@ function RechargeActivityContent() {
   );
 
   if (!user) return null;
+
+  const accountLevel = getAccountLevelLabel(user.vipLevel);
 
   return (
     <div className="relative min-h-screen flex flex-col overflow-hidden bg-background text-foreground pb-20 md:pb-0">
@@ -165,14 +168,14 @@ function RechargeActivityContent() {
               </div>
             </div>
 
-            <CoinShowcase currentVip={data?.currentVipName ?? undefined} />
+            <CoinShowcase currentVip={accountLevel} />
           </div>
         </section>
 
         {/* Stats strip */}
         <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Stat icon={<Wallet className="h-4 w-4 text-primary" />} label="Total recharge" value={`$${total.toFixed(2)}`} />
-          <Stat icon={<Crown className="h-4 w-4 text-amber-300" />} label="Current VIP" value={data?.currentVipName || "—"} accent="text-amber-300" />
+          <Stat icon={<Crown className="h-4 w-4 text-amber-300" />} label="Account level" value={accountLevel} accent="text-amber-300" />
           <Stat icon={<Gift className="h-4 w-4 text-primary" />} label="VIP rewards" value={`$${unlockedRewards.toLocaleString()}`} />
           <Stat icon={<Trophy className="h-4 w-4 text-amber-300" />} label="Vault balance" value={`$${wallet.cashUSDT.toFixed(2)}`} className="col-span-2 lg:col-span-1" />
         </div>
@@ -422,8 +425,7 @@ function TierCard({
   onClaim: () => void;
 }) {
   const stepNeed = tier.stepRequired ?? tier.required;
-  const progressAmount = tier.progressAmount ?? 0;
-  const remaining = tier.remaining ?? Math.max(0, stepNeed - progressAmount);
+  const remaining = tier.remaining ?? stepNeed;
   const isClaimed = tier.status === "claimed" || tier.claimed;
   const isClaimable = tier.status === "claimable" || tier.claimable;
   const isSkipped = tier.status === "skipped" || tier.skipped;
@@ -527,22 +529,6 @@ function TierCard({
             </div>
           </div>
 
-          {!isSkipped && (
-            <div className="mt-3">
-              <div className="mb-1 flex justify-between text-[10px] text-muted-foreground sm:text-[11px]">
-                <span className="font-mono">
-                  ${progressAmount.toFixed(2)} / ${stepNeed.toLocaleString()} for this tier
-                </span>
-                <span>{Math.round(tier.progress)}%</span>
-              </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-muted/60">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-amber-400/80 to-amber-300 transition-all duration-500"
-                  style={{ width: `${Math.min(100, tier.progress)}%` }}
-                />
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

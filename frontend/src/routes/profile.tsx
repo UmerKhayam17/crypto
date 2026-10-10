@@ -12,6 +12,7 @@ import { CountdownChip } from "@/components/binary-ticket";
 import { TradeResultViewDialog, TradeViewButton } from "@/components/trade-result-view";
 import { formatPrice } from "@/services/market-data";
 import { COUNTRIES } from "@/constants/countries";
+import { getAccountLevelLabel } from "@/utils/account-level";
 
 import { RequireAuth } from "@/components/auth/require-auth";
 
@@ -54,6 +55,10 @@ function ProfileContent() {
               <div>
                 <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{user.name}</h1>
                 <p className="text-sm text-muted-foreground">{user.email}</p>
+                <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-amber-400/40 bg-amber-400/10 px-2.5 py-0.5 text-xs font-bold text-amber-200">
+                  <Crown className="h-3.5 w-3.5 text-amber-300" />
+                  {getAccountLevelLabel(user.vipLevel)}
+                </span>
                 <KycBanner status={user.kyc.status} reason={user.kyc.reason} />
               </div>
             </div>
@@ -70,6 +75,7 @@ function ProfileContent() {
           <section className="rounded-xl border border-border/60 bg-card/60 p-5 lg:col-span-1">
             <h2 className="flex items-center gap-2 text-sm font-semibold"><UserIcon className="h-4 w-4 text-primary" />Account</h2>
             <dl className="mt-4 space-y-3 text-sm">
+              <Row icon={Crown} label="Account level" value={getAccountLevelLabel(user.vipLevel)} accent="text-amber-300" />
               <Row icon={Mail} label="Email" value={user.email} />
               <Row icon={Phone} label="Phone" value={user.phone || "—"} />
               <Row icon={Globe} label="Country" value={countryName} />

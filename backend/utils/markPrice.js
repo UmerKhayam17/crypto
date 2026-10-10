@@ -22,9 +22,19 @@ const FOREX_SYMBOLS = new Set(
   ]
 );
 
+const GOLD_SYMBOL = "XAU/USD";
+
 /** @type {{ at: number, rates: Record<string, number> } | null} */
 let forexCache = null;
 const FOREX_CACHE_MS = 60_000;
+
+/** @type {{ at: number, price: number } | null} */
+let goldCache = null;
+const GOLD_CACHE_MS = 10_000;
+
+function plausibleGold(price) {
+  return Number.isFinite(price) && price > 500 && price < 50000;
+}
 
 function toBinanceSymbol(symbol) {
   if (!symbol || typeof symbol !== "string") return null;
@@ -33,12 +43,44 @@ function toBinanceSymbol(symbol) {
 }
 
 function isAllowedTradeSymbol(symbol) {
-  return CRYPTO_SYMBOLS.has(symbol) || FOREX_SYMBOLS.has(symbol);
+  return CRYPTO_SYMBOLS.has(symbol) || FOREX_SYMBOLS.has(symbol) || symbol === GOLD_SYMBOL;
 }
 
 function forexQuote(symbol) {
   if (!FOREX_SYMBOLS.has(symbol)) return null;
   return symbol.slice(4);
+}
+
+async function fetchGoldSpot() {
+  if (goldCache && Date.now() - goldCache.at < GOLD_CACHE_MS) {
+    return goldCache.price;
+  }
+
+  let spot = NaN;
+  let paxg = NaN;
+  try {
+    const res = await fetch("https://api.gold-api.com/price/XAU");
+    if (res.ok) {
+      const data = await res.json();
+      spot = Number(data.price);
+    }
+  } catch {
+    // fall through to the PAXG market price
+  }
+  try {
+    const res = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT");
+    if (res.ok) {
+      const data = await res.json();
+      paxg = parseFloat(data.price);
+    }
+  } catch {
+    // fall through
+  }
+
+  const price = plausibleGold(spot) ? spot : paxg;
+  if (!plausibleGold(price)) throw new Error("Gold quote unavailable");
+  goldCache = { at: Date.now(), price };
+  return price;
 }
 
 async function fetchForexUsdRates() {
@@ -54,10 +96,18 @@ async function fetchForexUsdRates() {
 }
 
 /**
- * Fetch live mark price from Binance (crypto) or open.er-api (USD forex).
+ * Fetch live mark price from Binance (crypto), gold-api (XAU/USD), or open.er-api (USD forex).
  * Falls back to hint only if oracle fails.
  */
 async function fetchMarkPrice(symbol, fallbackHint) {
+  if (symbol === GOLD_SYMBOL) {
+    try {
+      return await fetchGoldSpot();
+    } catch {
+      // fall through to hint
+    }
+  }
+
   const binance = toBinanceSymbol(symbol);
   if (binance) {
     try {
@@ -94,6 +144,7 @@ async function fetchMarkPrice(symbol, fallbackHint) {
 module.exports = {
   CRYPTO_SYMBOLS,
   FOREX_SYMBOLS,
+  GOLD_SYMBOL,
   toBinanceSymbol,
   isAllowedTradeSymbol,
   fetchMarkPrice,

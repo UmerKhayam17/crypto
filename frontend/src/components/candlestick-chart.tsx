@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  fetchGoldCandles,
   fetchKlines,
   generateCandles,
+  GOLD_SYMBOL,
   INTERVALS,
   intervalToMs,
   toBinanceSymbol,
@@ -193,6 +195,14 @@ export function CandlestickChart({ symbol, height = 360 }: Props) {
           setError(e.message || "Could not load chart");
           apply(generateCandles(assetPriceRef.current, limit, intervalToMs(interval), 0.004));
         });
+    } else if (symbol === GOLD_SYMBOL) {
+      fetchGoldCandles(interval, limit)
+        .then(apply)
+        .catch((e: Error) => {
+          if (cancelled || gen !== loadGenRef.current) return;
+          setError(e.message || "Could not load gold chart");
+          apply(generateCandles(assetPriceRef.current, limit, intervalToMs(interval), 0.002));
+        });
     } else {
       apply(generateCandles(assetPriceRef.current, limit, intervalToMs(interval), 0.008));
     }
@@ -269,6 +279,17 @@ export function CandlestickChart({ symbol, height = 360 }: Props) {
         return next.length > limit ? next.slice(next.length - limit) : next;
       });
     };
+
+    if (symbol === GOLD_SYMBOL) {
+      let lastApplied = 0;
+      const id = window.setInterval(() => {
+        const price = assetPriceRef.current;
+        if (!readyRef.current || !(price > 0) || price === lastApplied) return;
+        lastApplied = price;
+        applyTick(price);
+      }, 400);
+      return () => window.clearInterval(id);
+    }
 
     if (!bs) {
       const id = window.setInterval(() => {
@@ -462,26 +483,37 @@ export function CandlestickChart({ symbol, height = 360 }: Props) {
     setCandles([]);
     const bs = toBinanceSymbol(symbol);
     const gen = loadGenRef.current;
+    const finish = (data: Candle[]) => {
+      if (gen !== loadGenRef.current) return;
+      const cleaned = data.map(sanitizeCandle);
+      setCandles(cleaned);
+      setLoading(false);
+      readyRef.current = true;
+      if (cleaned.length) {
+        const last = cleaned[cleaned.length - 1].c;
+        targetPriceRef.current = last;
+        displayPriceRef.current = last;
+        setSmoothPrice(last);
+      }
+    };
     if (bs) {
       fetchKlines(bs, interval, limit)
-        .then((data) => {
-          if (gen !== loadGenRef.current) return;
-          const cleaned = data.map(sanitizeCandle);
-          setCandles(cleaned);
-          setLoading(false);
-          readyRef.current = true;
-        })
+        .then(finish)
         .catch((e: Error) => {
           if (gen !== loadGenRef.current) return;
           setError(e.message);
-          setCandles(generateCandles(assetPriceRef.current, limit, intervalToMs(interval), 0.004).map(sanitizeCandle));
-          setLoading(false);
-          readyRef.current = true;
+          finish(generateCandles(assetPriceRef.current, limit, intervalToMs(interval), 0.004));
+        });
+    } else if (symbol === GOLD_SYMBOL) {
+      fetchGoldCandles(interval, limit)
+        .then(finish)
+        .catch((e: Error) => {
+          if (gen !== loadGenRef.current) return;
+          setError(e.message);
+          finish(generateCandles(assetPriceRef.current, limit, intervalToMs(interval), 0.002));
         });
     } else {
-      setCandles(generateCandles(assetPriceRef.current, limit, intervalToMs(interval), 0.008).map(sanitizeCandle));
-      setLoading(false);
-      readyRef.current = true;
+      finish(generateCandles(assetPriceRef.current, limit, intervalToMs(interval), 0.008));
     }
   };
 
