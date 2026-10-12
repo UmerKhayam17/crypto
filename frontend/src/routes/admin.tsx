@@ -95,7 +95,7 @@ function AdminDashboard() {
     fname: "", lname: "", email: "", phone: "", password: "", confirmPassword: "",
   });
   const [editStaffSubmitting, setEditStaffSubmitting] = useState(false);
-  const [editUser, setEditUser] = useState<{ id: string; fname: string; lname: string; email: string; phone: string; country: string } | null>(null);
+  const [editUser, setEditUser] = useState<{ id: string; fname: string; lname: string; email: string; phone: string; country: string; password: string; confirmPassword: string } | null>(null);
   const [rejectTarget, setRejectTarget] = useState<Deposit | null>(null);
   const [rejectWithdrawTarget, setRejectWithdrawTarget] = useState<Withdrawal | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -410,7 +410,7 @@ function AdminDashboard() {
                 { key: "actions", header: "Actions", align: "right", cell: (u) => (
                   <div className="flex flex-wrap justify-end gap-1">
                     {isAdmin && (
-                      <Button size="sm" variant="outline" onClick={() => setEditUser({ id: u.id, fname: u.fname, lname: u.lname, email: u.email, phone: u.phone, country: u.country })}>
+                      <Button size="sm" variant="outline" onClick={() => setEditUser({ id: u.id, fname: u.fname, lname: u.lname, email: u.email, phone: u.phone, country: u.country, password: "", confirmPassword: "" })}>
                         <Pencil className="mr-1 h-3 w-3" />Edit
                       </Button>
                     )}
@@ -1126,7 +1126,7 @@ function AdminDashboard() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit user</DialogTitle>
-            <DialogDescription>Update profile details. Email must be unique.</DialogDescription>
+            <DialogDescription>Update profile details. Leave password blank to keep the current password. Email must be unique.</DialogDescription>
           </DialogHeader>
           {editUser && (
             <div className="grid gap-3 sm:grid-cols-2">
@@ -1141,15 +1141,23 @@ function AdminDashboard() {
                   {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
                 </select>
               </div>
+              <div className="sm:col-span-2"><Label>New password (optional)</Label><PasswordInput value={editUser.password} onChange={(e) => setEditUser({ ...editUser, password: e.target.value })} placeholder="Leave blank to keep current" /></div>
+              <div className="sm:col-span-2"><Label>Confirm new password</Label><PasswordInput value={editUser.confirmPassword} onChange={(e) => setEditUser({ ...editUser, confirmPassword: e.target.value })} placeholder="Repeat new password" /></div>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditUser(null)}>Cancel</Button>
             <Button className="bg-primary text-primary-foreground" onClick={async () => {
               if (!editUser) return;
+              if (editUser.password || editUser.confirmPassword) {
+                if (editUser.password !== editUser.confirmPassword) {
+                  return toast.error("Passwords do not match");
+                }
+              }
               const r = await adminUpdateUser(editUser.id, {
                 fname: editUser.fname, lname: editUser.lname, email: editUser.email,
                 phone: editUser.phone, country: editUser.country,
+                ...(editUser.password ? { password: editUser.password } : {}),
               });
               if (!r.ok) return toast.error(r.msg);
               toast.success(r.msg);

@@ -289,7 +289,7 @@ type Store = {
   adminSetBalance: (userId: string, balance: number) => Promise<{ ok: boolean; msg: string }>;
   adminSetVipLevel: (userId: string, vipLevel: number) => Promise<{ ok: boolean; msg: string }>;
   adminDeleteUser: (userId: string) => Promise<{ ok: boolean; msg: string }>;
-  adminUpdateUser: (userId: string, patch: { fname?: string; lname?: string; email?: string; phone?: string; country?: string }) => Promise<{ ok: boolean; msg: string }>;
+  adminUpdateUser: (userId: string, patch: { fname?: string; lname?: string; email?: string; phone?: string; country?: string; password?: string }) => Promise<{ ok: boolean; msg: string }>;
   adminSetForceOutcome: (
     userId: string,
     outcome: ForceOutcome,
@@ -1083,7 +1083,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const data = await apiUpdateUserProfile(userId, patch);
       const mapped = apiUserToStoreUser(data.user);
       setUsers((xs) => xs.map((u) => (u.id === userId ? { ...u, ...mapped } : u)));
-      audit("user.update", `Updated profile for ${userNameOf(userId)}`, userId);
+      audit(
+        "user.update",
+        patch.password
+          ? `Updated profile and password for ${userNameOf(userId)}`
+          : `Updated profile for ${userNameOf(userId)}`,
+        userId
+      );
       return { ok: true, msg: data.msg || "User updated" };
     } catch (err) {
       return { ok: false, msg: err instanceof Error ? err.message : "Could not update user" };

@@ -5,6 +5,7 @@ const Withdrawal = require("../model/Withdrawal");
 const SpotPosition = require("../model/SpotPosition");
 const formatUser = require("../utils/formatUser");
 const { creditWallet } = require("../utils/wallet");
+const { validatePassword } = require("../utils/validators");
 const notify = require("../utils/realtimeNotify");
 
 async function canAccessUser(actor, userId) {
@@ -303,6 +304,16 @@ exports.updateProfile = async (req, res) => {
     }
     if (phone != null) platformUser.phone = String(phone).trim();
     if (country != null) platformUser.country = String(country).trim();
+
+    const nextPassword = req.body.password != null ? String(req.body.password) : "";
+    if (nextPassword) {
+      if (req.user.role !== "admin") {
+        return res.status(403).json({ ok: false, msg: "Admin access required" });
+      }
+      const pwErr = validatePassword(nextPassword);
+      if (pwErr) return res.status(400).json({ ok: false, msg: pwErr });
+      platformUser.password = nextPassword;
+    }
 
     await platformUser.save();
     await platformUser.populate("assignedStaff", "fname lname");
