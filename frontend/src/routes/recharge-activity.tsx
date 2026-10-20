@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  Check, Crown, Gift, Lock, Wallet,
+  Check, Crown, Lock, Wallet,
 } from "lucide-react";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { useStore } from "@/context/store";
 import {
   apiGetMyVipStatus,
-  apiClaimVipReward,
   type VipStatusResponse,
   type VipTierStatus,
 } from "@/services/vip";
@@ -26,10 +25,9 @@ export default function RechargeActivityPage() {
 }
 
 function RechargeActivityContent() {
-  const { user, syncMyWallet } = useStore();
+  const { user } = useStore();
   const [data, setData] = useState<VipStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [claimingLevel, setClaimingLevel] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,23 +44,6 @@ function RechargeActivityContent() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const handleClaim = useCallback(
-    async (level: number) => {
-      setClaimingLevel(level);
-      try {
-        const res = await apiClaimVipReward(level);
-        setData(res);
-        if (res.wallet) syncMyWallet(res.wallet.cashUSDT);
-        toast.success(res.msg || "VIP reward claimed");
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Could not claim reward");
-      } finally {
-        setClaimingLevel(null);
-      }
-    },
-    [syncMyWallet]
-  );
 
   const tiers = data?.tiers ?? [];
   const hasClaimable = tiers.some((t) => t.status === "claimable" || t.claimable);
@@ -89,7 +70,7 @@ function RechargeActivityContent() {
                 <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-800 dark:text-amber-200">VIP rewards</p>
                 <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Recharge activity</h1>
                 <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
-                  Deposit the amount for a VIP level and claim a one-time bonus. A larger deposit claims that level and skips the smaller ones.
+                  Deposit the amount for a VIP level to unlock its one-time bonus. A larger deposit unlocks that level and skips the smaller ones.
                 </p>
                 <Button
                   asChild
@@ -118,8 +99,8 @@ function RechargeActivityContent() {
 
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <Step n="1" title="Deposit" body="Send the amount shown for one level." />
-          <Step n="2" title="Claim" body="The bonus is added to your balance once." />
-          <Step n="3" title="Move up" body="A bigger deposit skips levels you have not claimed." />
+          <Step n="2" title="Unlock" body="That level's bonus unlocks when the deposit is approved." />
+          <Step n="3" title="Move up" body="A bigger deposit skips levels below it." />
         </div>
 
         <div className="mt-8 flex items-end justify-between gap-3">
@@ -145,8 +126,6 @@ function RechargeActivityContent() {
                 tier={tier}
                 isNext={tier.level === nextLevel}
                 delayMs={40 + i * 45}
-                claiming={claimingLevel === tier.level}
-                onClaim={() => void handleClaim(tier.level)}
               />
             ))}
           </div>
@@ -235,54 +214,29 @@ function TierCard({
   tier,
   isNext,
   delayMs,
-  claiming,
-  onClaim,
 }: {
   tier: VipTierStatus;
   isNext: boolean;
   delayMs: number;
-  claiming: boolean;
-  onClaim: () => void;
 }) {
   const stepNeed = tier.stepRequired ?? tier.required;
   const isClaimed = tier.status === "claimed" || tier.claimed;
-  const isClaimable = tier.status === "claimable" || tier.claimable;
   const isSkipped = tier.status === "skipped" || tier.skipped;
-  const badge = isClaimable
-    ? "claimable"
-    : isClaimed
-      ? "claimed"
-      : isSkipped
-        ? "skipped"
-        : isNext
-          ? "next"
-          : null;
+  const badge = isClaimed
+    ? "claimed"
+    : isSkipped
+      ? "skipped"
+      : isNext
+        ? "next"
+        : null;
 
   return (
     <article
-      className={`vip-tier-enter rounded-2xl border p-4 sm:p-5 ${
-        isClaimable
-          ? "border-amber-600/35 bg-gradient-to-r from-amber-400/20 via-card to-card vip-claimable-card dark:border-amber-400/45 dark:from-amber-400/15"
-          : isClaimed
-            ? "border-emerald-700/20 bg-emerald-500/[0.06] dark:border-emerald-400/25"
-            : isSkipped
-              ? "border-border/50 bg-card/50 opacity-70"
-              : isNext
-                ? "border-amber-700/20 bg-card dark:border-amber-400/20"
-                : "border-border/70 bg-card/80"
-      }`}
+      className="vip-tier-enter rounded-2xl border border-border/70 bg-card p-4 sm:p-5"
       style={{ animationDelay: `${delayMs}ms` }}
     >
       <div className="flex items-center gap-3 sm:gap-4">
-        <div
-          className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl border text-sm font-bold ${
-            isClaimed
-              ? "border-emerald-700/25 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
-              : isClaimable || isNext
-                ? "border-amber-700/25 bg-amber-500/15 text-amber-950 dark:border-amber-400/35 dark:text-amber-100"
-                : "border-border bg-muted/50 text-muted-foreground"
-          }`}
-        >
+        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-border bg-muted/40 text-sm font-bold text-foreground">
           {isClaimed ? <Check className="h-4 w-4" /> : isSkipped ? <Lock className="h-4 w-4" /> : tier.level}
         </div>
 
@@ -296,43 +250,25 @@ function TierCard({
           </p>
         </div>
 
-        <div className={`shrink-0 rounded-xl px-3 py-2 text-right ${isSkipped ? "bg-muted/60" : "bg-amber-500/12 dark:bg-amber-400/10"}`}>
+        <div className="shrink-0 rounded-xl bg-muted/50 px-3 py-2 text-right">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Bonus</div>
-          <div className={`font-mono text-lg font-bold sm:text-xl ${isSkipped ? "text-muted-foreground" : "text-amber-950 dark:text-amber-100"}`}>
+          <div className="font-mono text-lg font-bold text-foreground sm:text-xl">
             +{money(tier.reward)}
           </div>
         </div>
       </div>
-
-      {isClaimable && (
-        <Button
-          disabled={claiming}
-          onClick={onClaim}
-          className="mt-4 h-11 w-full rounded-xl bg-gradient-to-r from-amber-300 via-amber-400 to-yellow-500 font-bold text-amber-950 hover:opacity-95"
-        >
-          <Gift className="mr-1.5 h-4 w-4" />
-          {claiming ? "Claiming…" : `Claim ${money(tier.reward)}`}
-        </Button>
-      )}
     </article>
   );
 }
 
-function StatusBadge({ status }: { status: "claimable" | "claimed" | "skipped" | "next" }) {
-  const map = {
-    claimable: "bg-amber-500/20 text-amber-950 border-amber-700/25 dark:text-amber-100 dark:border-amber-400/30",
-    claimed: "bg-emerald-500/12 text-emerald-800 border-emerald-700/20 dark:text-emerald-200 dark:border-emerald-400/25",
-    skipped: "bg-muted text-muted-foreground border-border",
-    next: "bg-background text-amber-900 border-amber-700/25 dark:text-amber-100 dark:border-amber-400/30",
-  };
+function StatusBadge({ status }: { status: "claimed" | "skipped" | "next" }) {
   const label = {
-    claimable: "Ready to claim",
-    claimed: "Claimed",
+    claimed: "Credited",
     skipped: "Skipped",
     next: "Next",
   };
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${map[status]}`}>
+    <span className="inline-flex items-center rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
       {label[status]}
     </span>
   );
