@@ -59,6 +59,12 @@ exports.createDeposit = async (req, res) => {
 
     const formatted = formatDeposit(deposit);
     notify.depositUpsert(formatted);
+    const who = `${user.fname || ""} ${user.lname || ""}`.trim() || user.email;
+    notify.adminAlert({
+      kind: "deposit",
+      title: "New deposit",
+      body: `${who} submitted a $${amount.toFixed(2)} deposit`,
+    });
 
     return res.status(201).json({
       ok: true,

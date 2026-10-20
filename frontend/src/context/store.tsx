@@ -59,6 +59,7 @@ import {
 } from "@/services/trades";
 import { apiCloseSpot, apiListMySpot, apiListSpot, apiOpenSpot } from "@/services/spot";
 import { subscribeRealtime } from "@/services/realtime";
+import { armAdminDesktopAlerts, showAdminDesktopAlert } from "@/services/admin-alert";
 import { toast } from "sonner";
 import {
   apiGetSupportUnread,
@@ -138,6 +139,8 @@ export type StaffUpdateInput = {
   password?: string;
 };
 
+const OPEN_TRADE_MSG = "Need to close or complete the first trade";
+
 /** Binary-option trade (timed, UP/DOWN, admin-controlled payout). */
 export type BinaryTrade = {
   id: string;
@@ -149,7 +152,7 @@ export type BinaryTrade = {
   entryPrice: number;
   openedAt: number;
   expiresAt: number;
-  status: "active" | "won" | "lost" | "draw";
+  status: "active" | "settling" | "won" | "lost" | "draw";
   closePrice?: number;
   payout?: number;       // amount credited back to wallet (stake+profit on win; 0 on loss)
   pnl?: number;          // payout - stake (profit/loss)
@@ -204,7 +207,7 @@ export type SpotPosition = {
   entryFee: number;
   cost: number;
   openedAt: number;
-  status: "open" | "closed";
+  status: "open" | "closing" | "closed";
   exitPrice?: number;
   exitFee?: number;
   proceeds?: number;
@@ -492,6 +495,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const supportInboxFocusRef = useRef(0);
   const supportLoginNotifyRef = useRef<string | null>(null);
 
+  const sessionRef = useRef<Session>(session);
+  useEffect(() => { sessionRef.current = session; }, [session]);
   const assetsRef = useRef<Asset[]>(assets);
   useEffect(() => { assetsRef.current = assets; }, [assets]);
   const usersRef = useRef<User[]>(users);
@@ -893,6 +898,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     void loadSpotPositions();
   }, [hydrated, authReady, session, loadSpotPositions]);
 
+  const hasOpenTrade = () => {
+    if (!user) return false;
+    const openBinary = trades.some(
+      (t) => t.userId === user.id && (t.status === "active" || t.status === "settling")
+    );
+    const openSpot = spotPositions.some(
+      (p) => p.userId === user.id && (p.status === "open" || p.status === "closing")
+    );
+    return openBinary || openSpot;
+  };
+
   const placeBinaryTrade: Store["placeBinaryTrade"] = async ({ symbol, direction, stake, durationSec }) => {
     if (!user) return { ok: false, msg: "Please sign in first" };
     if (user.suspended) return { ok: false, msg: "Your account is suspended" };
@@ -905,6 +921,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!VALID_TRADE_DURATIONS.includes(durationSec as typeof VALID_TRADE_DURATIONS[number])) {
       return { ok: false, msg: "Invalid duration" };
     }
+    if (hasOpenTrade()) return { ok: false, msg: OPEN_TRADE_MSG };
     try {
       const data = await apiCreateTrade({
         symbol,
@@ -961,6 +978,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!a) return { ok: false, msg: "Unknown market" };
     if (!(quantity > 0)) return { ok: false, msg: "Enter a quantity greater than 0" };
     if (side !== "buy" && side !== "sell") return { ok: false, msg: "Invalid side" };
+    if (hasOpenTrade()) return { ok: false, msg: OPEN_TRADE_MSG };
     try {
       const data = await apiOpenSpot({ symbol, quantity, entryPrice: a.price, side });
       if (data.position) {
@@ -1458,6 +1476,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  useEffect(() => {
+    if (!hydrated || !authReady || session?.role !== "admin") return;
+    return armAdminDesktopAlerts();
+  }, [hydrated, authReady, session?.role]);
+
   /* ---------- Real-time sync (WebSocket) ---------- */
   useEffect(() => {
     if (!hydrated) return;
@@ -1474,6 +1497,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const { type, payload } = msg;
 
       switch (type) {
+        case "admin:alert": {
+          if (sessionRef.current?.role === "admin") {
+            showAdminDesktopAlert({
+              title: payload.title as string | undefined,
+              body: payload.body as string | undefined,
+            });
+          }
+          break;
+        }
         case "settings:updated": {
           const walletAddress = payload.walletAddress as string | undefined;
           const payoutPercent = payload.payoutPercent as number | undefined;

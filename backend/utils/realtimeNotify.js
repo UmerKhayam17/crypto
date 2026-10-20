@@ -101,6 +101,10 @@ exports.supportThreadUpdated = (thread, extra = {}) => {
   emitUserScoped("support:thread", { thread, ...extra }, userId);
 };
 
+exports.adminAlert = ({ title, body, kind }) => {
+  emitAdmin("admin:alert", { title, body, kind });
+};
+
 exports.spotUpsert = (position, extra = {}) => {
   const userId = normalizeId(position.userId) || normalizeId(extra.userId);
   if (!userId) return;

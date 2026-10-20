@@ -1,17 +1,30 @@
 const CRYPTO_SYMBOLS = new Set(
   [
     "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT", "DOGE/USDT",
-    "AVAX/USDT", "LINK/USDT", "MATIC/USDT", "DOT/USDT", "TRX/USDT", "TON/USDT", "SHIB/USDT",
+    "AVAX/USDT", "LINK/USDT", "POL/USDT", "DOT/USDT", "TRX/USDT", "SHIB/USDT",
     "LTC/USDT", "BCH/USDT", "UNI/USDT", "ATOM/USDT", "NEAR/USDT", "ICP/USDT", "APT/USDT",
     "FIL/USDT", "ARB/USDT", "OP/USDT", "INJ/USDT", "SUI/USDT", "SEI/USDT", "TIA/USDT",
-    "RUNE/USDT", "AAVE/USDT", "MKR/USDT", "SNX/USDT", "CRV/USDT", "LDO/USDT", "GRT/USDT",
+    "RUNE/USDT", "AAVE/USDT", "SKY/USDT", "SNX/USDT", "CRV/USDT", "LDO/USDT", "GRT/USDT",
     "SAND/USDT", "MANA/USDT", "AXS/USDT", "GALA/USDT", "CHZ/USDT", "FLOW/USDT", "ALGO/USDT",
-    "XLM/USDT", "VET/USDT", "HBAR/USDT", "EOS/USDT", "XTZ/USDT", "EGLD/USDT", "KAVA/USDT",
-    "MINA/USDT", "ROSE/USDT", "IMX/USDT", "RNDR/USDT", "FTM/USDT", "KSM/USDT", "ZIL/USDT",
+    "XLM/USDT", "VET/USDT", "HBAR/USDT", "A/USDT", "XTZ/USDT", "EGLD/USDT", "KAVA/USDT",
+    "MINA/USDT", "ROSE/USDT", "IMX/USDT", "RENDER/USDT", "S/USDT", "KSM/USDT", "ZIL/USDT",
     "BAT/USDT", "ZRX/USDT", "COMP/USDT", "YFI/USDT", "SUSHI/USDT", "1INCH/USDT", "DYDX/USDT",
     "ENJ/USDT", "JASMY/USDT", "WLD/USDT", "ORDI/USDT", "BLUR/USDT", "PEPE/USDT",
+    "FLOKI/USDT", "BONK/USDT", "WIF/USDT", "JUP/USDT", "PYTH/USDT", "JTO/USDT",
+    "STRK/USDT", "DYM/USDT", "ALT/USDT", "MANTA/USDT", "ENS/USDT", "BAND/USDT",
+    "KNC/USDT", "ANKR/USDT", "CELO/USDT",
+    "IOTA/USDT", "NEO/USDT", "DASH/USDT", "XEC/USDT", "AR/USDT", "GMT/USDT",
+    "APE/USDT", "MASK/USDT", "CFX/USDT", "STX/USDT", "QNT/USDT", "BTTC/USDT",
+    "HOT/USDT", "RVN/USDT", "ZEC/USDT", "ETC/USDT", "DGB/USDT",
+    "CAKE/USDT", "GMX/USDT", "WOO/USDT", "FET/USDT",
   ]
 );
+
+/** Any BASE/USDT pair, so a coin shown in the app is tradable even if it is not listed above. */
+const CRYPTO_PAIR = /^[A-Z0-9]{1,20}\/USDT$/;
+
+const METAL_SYMBOLS = new Set(["XAU/USD", "XAG/USD", "XPT/USD", "XPD/USD"]);
+const STOCK_SYMBOLS = new Set(["AAPL", "TSLA", "NVDA"]);
 
 const FOREX_SYMBOLS = new Set(
   [
@@ -36,14 +49,22 @@ function plausibleGold(price) {
   return Number.isFinite(price) && price > 500 && price < 50000;
 }
 
+function isCryptoSymbol(symbol) {
+  return typeof symbol === "string" && (CRYPTO_SYMBOLS.has(symbol) || CRYPTO_PAIR.test(symbol));
+}
+
 function toBinanceSymbol(symbol) {
-  if (!symbol || typeof symbol !== "string") return null;
-  if (!CRYPTO_SYMBOLS.has(symbol)) return null;
+  if (!isCryptoSymbol(symbol)) return null;
   return symbol.replace("/", "");
 }
 
 function isAllowedTradeSymbol(symbol) {
-  return CRYPTO_SYMBOLS.has(symbol) || FOREX_SYMBOLS.has(symbol) || symbol === GOLD_SYMBOL;
+  return (
+    isCryptoSymbol(symbol) ||
+    FOREX_SYMBOLS.has(symbol) ||
+    METAL_SYMBOLS.has(symbol) ||
+    STOCK_SYMBOLS.has(symbol)
+  );
 }
 
 function forexQuote(symbol) {

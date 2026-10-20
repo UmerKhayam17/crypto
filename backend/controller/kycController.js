@@ -97,6 +97,12 @@ exports.submitKyc = async (req, res) => {
     const formatted = formatUser(user);
     const staffView = formatUser(user, { staff: true });
     notify.userUpdated(staffView);
+    const who = `${user.fname || ""} ${user.lname || ""}`.trim() || user.email;
+    notify.adminAlert({
+      kind: "kyc",
+      title: "KYC document uploaded",
+      body: `${who} submitted KYC documents`,
+    });
 
     return res.json({ ok: true, msg: "KYC submitted — awaiting review", user: formatted });
   } catch (err) {
