@@ -7,6 +7,7 @@ const { fetchMarkPrice, isAllowedTradeSymbol } = require("../utils/markPrice");
 const { debitWallet, creditWallet } = require("../utils/wallet");
 const notify = require("../utils/realtimeNotify");
 const { isValidDuration } = require("../utils/durationPayout");
+const { OPEN_TRADE_MSG, hasOpenTrade } = require("../utils/openTradeGuard");
 
 let settling = false;
 
@@ -148,6 +149,9 @@ exports.createTrade = async (req, res) => {
     if (!isValidDuration(dur)) {
       return res.status(400).json({ ok: false, msg: "Invalid duration" });
     }
+    if (await hasOpenTrade(user._id)) {
+      return res.status(400).json({ ok: false, msg: OPEN_TRADE_MSG });
+    }
 
     let entry;
     try {
@@ -187,6 +191,12 @@ exports.createTrade = async (req, res) => {
     notify.tradeUpsert(formatted, {
       wallet: { cashUSDT: debited.wallet.cashUSDT },
       userId: user._id.toString(),
+    });
+    const who = `${user.fname || ""} ${user.lname || ""}`.trim() || user.email;
+    notify.adminAlert({
+      kind: "trade",
+      title: "New trade opened",
+      body: `${who} opened ${direction.toUpperCase()} on ${symbol}`,
     });
 
     return res.status(201).json({

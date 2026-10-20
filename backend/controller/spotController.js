@@ -5,6 +5,7 @@ const formatSpotPosition = require("../utils/formatSpotPosition");
 const { fetchMarkPrice, isAllowedTradeSymbol } = require("../utils/markPrice");
 const { debitWallet, creditWallet } = require("../utils/wallet");
 const notify = require("../utils/realtimeNotify");
+const { OPEN_TRADE_MSG, hasOpenTrade } = require("../utils/openTradeGuard");
 
 async function getSpotFeePercent() {
   const settings = await Settings.getSettings();

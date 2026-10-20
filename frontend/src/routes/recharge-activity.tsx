@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  Crown, Gift, Lock, Wallet, Sparkles, Trophy, ArrowRight,
+  Check, Crown, Gift, Wallet,
 } from "lucide-react";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
@@ -80,114 +80,73 @@ function RechargeActivityContent() {
   const accountLevel = getAccountLevelLabel(user.vipLevel);
 
   return (
-    <div className="relative min-h-screen flex flex-col overflow-hidden bg-background text-foreground pb-20 md:pb-0">
-      {/* Stage backdrop */}
-      <div
-        className="pointer-events-none absolute inset-0 -z-10"
-        style={{
-          background: `
-            radial-gradient(ellipse 90% 55% at 50% -5%, oklch(0.88 0.14 85 / 0.22), transparent 55%),
-            radial-gradient(ellipse 50% 40% at 0% 40%, oklch(0.72 0.17 158 / 0.14), transparent 50%),
-            radial-gradient(ellipse 45% 35% at 100% 60%, oklch(0.75 0.12 70 / 0.1), transparent 45%),
-            var(--gradient-hero)
-          `,
-        }}
-      />
-      <div
-        className="pointer-events-none absolute inset-0 -z-10 opacity-[0.07]"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle at 1px 1px, oklch(0.9 0.05 85) 1px, transparent 0)",
-          backgroundSize: "28px 28px",
-        }}
-      />
-      <GoldParticles />
-
+    <div className="relative min-h-screen flex flex-col bg-background text-foreground pb-20 md:pb-0">
       <SiteHeader />
 
-      <main className="mx-auto w-full max-w-4xl flex-1 px-3 py-4 sm:px-6 sm:py-8">
-        {/* Hero vault */}
-        <section
-          className="relative overflow-hidden rounded-[1.75rem] border border-amber-400/30 p-5 sm:p-8"
-          style={{
-            background:
-              "linear-gradient(145deg, oklch(0.22 0.05 258 / 0.92) 0%, oklch(0.18 0.04 260 / 0.85) 50%, oklch(0.24 0.06 160 / 0.35) 100%)",
-            boxShadow: "var(--shadow-elegant), 0 0 80px -30px rgba(245,197,66,0.35)",
-          }}
-        >
-          <div className="vip-glow-breathe pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-amber-400/20 blur-3xl" />
-          <div className="vip-glow-breathe pointer-events-none absolute -bottom-20 -left-10 h-56 w-56 rounded-full bg-primary/20 blur-3xl" style={{ animationDelay: "-1.5s" }} />
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-300/50 to-transparent" />
-
-          <div className="relative grid gap-8 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-amber-400/35 bg-amber-400/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-amber-200">
-                <Sparkles className="vip-sparkle h-3.5 w-3.5 text-amber-300" />
-                Exclusive VIP vault
-              </div>
-
-              <h1 className="mt-4 text-4xl font-extrabold tracking-tight sm:text-5xl">
-                <span className="bg-gradient-to-br from-amber-100 via-amber-300 to-amber-500 bg-clip-text text-transparent">
-                  Recharge
-                </span>{" "}
-                <span className="text-foreground">Activity</span>
-              </h1>
-
-              <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-                Each VIP needs its own deposit: $1,000 for VIP 1, then a separate $3,000 for VIP 2, and so on.
-                Deposit enough for a higher tier first and you claim that tier only — lower ones are skipped.
-              </p>
-
-              <div className="mt-6 flex flex-wrap items-center gap-3">
+      <main className="mx-auto w-full max-w-3xl flex-1 px-3 py-6 sm:px-6 sm:py-10">
+        <section className="overflow-hidden rounded-3xl border border-amber-400/25 bg-card/70 shadow-[0_20px_60px_-40px_rgba(245,197,66,0.45)]">
+          <div className="relative p-5 sm:p-8">
+            <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-amber-400/15 blur-3xl" />
+            <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-300">VIP rewards</p>
+                <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Recharge activity</h1>
+                <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
+                  Each tier uses its own deposit. A larger deposit claims that tier and skips the ones below it.
+                </p>
                 <Button
                   asChild
-                  size="lg"
-                  className="h-11 rounded-xl bg-gradient-to-r from-amber-300 via-amber-400 to-yellow-500 font-bold text-amber-950 shadow-[0_8px_30px_-8px_rgba(245,197,66,0.65)] hover:opacity-95"
+                  className="mt-5 h-11 rounded-xl bg-gradient-to-r from-amber-300 via-amber-400 to-yellow-500 px-5 font-bold text-amber-950 hover:opacity-95"
                 >
                   <Link to="/deposit">
                     <Wallet className="mr-2 h-4 w-4" />
-                    Deposit & unlock
+                    Deposit
                   </Link>
                 </Button>
               </div>
-            </div>
 
-            <CoinShowcase currentVip={accountLevel} />
+              <div className="flex shrink-0 items-center gap-4 self-start rounded-2xl border border-amber-400/25 bg-amber-400/8 px-4 py-3 sm:self-center">
+                <Coin3D size={64} spinSec={8} label={accountLevel === "Basic" ? "VIP" : String(user.vipLevel || "VIP")} large />
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Current level</div>
+                  <div className="mt-0.5 flex items-center gap-1.5 text-lg font-bold text-amber-200">
+                    <Crown className="h-4 w-4 text-amber-300" />
+                    {accountLevel}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 divide-y divide-border/60 border-t border-border/60 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            <Stat label="Total recharge" value={`$${total.toFixed(2)}`} />
+            <Stat label="Rewards claimed" value={`$${unlockedRewards.toLocaleString()}`} />
+            <Stat label="Balance" value={`$${wallet.cashUSDT.toFixed(2)}`} />
           </div>
         </section>
 
-        {/* Stats strip */}
-        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Stat icon={<Wallet className="h-4 w-4 text-primary" />} label="Total recharge" value={`$${total.toFixed(2)}`} />
-          <Stat icon={<Crown className="h-4 w-4 text-amber-300" />} label="Account level" value={accountLevel} accent="text-amber-300" />
-          <Stat icon={<Gift className="h-4 w-4 text-primary" />} label="VIP rewards" value={`$${unlockedRewards.toLocaleString()}`} />
-          <Stat icon={<Trophy className="h-4 w-4 text-amber-300" />} label="Vault balance" value={`$${wallet.cashUSDT.toFixed(2)}`} className="col-span-2 lg:col-span-1" />
-        </div>
-
-        {/* Tier cards */}
-        <div className="mt-6 flex items-end justify-between gap-2">
+        <div className="mt-8 flex items-end justify-between gap-3">
           <div>
-            <h2 className="text-lg font-bold tracking-tight">Reward tiers</h2>
+            <h2 className="text-lg font-bold tracking-tight">Reward ladder</h2>
             <p className="text-xs text-muted-foreground">
-              Up to <span className="font-mono text-primary">${totalRewards.toLocaleString()}</span> in one-time bonuses
+              Up to <span className="font-mono text-amber-200">${totalRewards.toLocaleString()}</span> in one-time bonuses
             </p>
           </div>
         </div>
 
         {loading ? (
-          <div className="mt-12 flex flex-col items-center gap-4 text-muted-foreground">
-            <div className="vip-coin-tilt relative h-16 w-16">
-              <Coin3D size={64} spinSec={1.1} label="$" />
-            </div>
-            <span className="text-sm">Opening the VIP vault…</span>
+          <div className="mt-4 space-y-3">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i} className="h-[88px] animate-pulse rounded-2xl border border-border/50 bg-card/40" />
+            ))}
           </div>
         ) : (
-          <div className="mt-4 space-y-3.5">
+          <div className="mt-4 space-y-3">
             {tiers.map((tier, i) => (
               <TierCard
                 key={tier.level}
                 tier={tier}
-                delayMs={80 + i * 80}
+                delayMs={40 + i * 45}
                 claiming={claimingLevel === tier.level}
                 onClaim={() => void handleClaim(tier.level)}
               />
@@ -195,107 +154,11 @@ function RechargeActivityContent() {
           </div>
         )}
 
-        <p className="mt-10 text-center text-xs text-muted-foreground">
-          Recharge totals are based on approved deposits only.
+        <p className="mt-8 text-center text-xs text-muted-foreground">
+          Totals include approved deposits only.
         </p>
       </main>
       <SiteFooter />
-    </div>
-  );
-}
-
-function GoldParticles() {
-  const particles = useMemo(
-    () =>
-      Array.from({ length: 14 }, (_, i) => ({
-        id: i,
-        left: `${6 + ((i * 7) % 88)}%`,
-        delay: `${(i * 0.55) % 7}s`,
-        duration: `${7 + (i % 5)}s`,
-        size: 3 + (i % 4),
-      })),
-    []
-  );
-  return (
-    <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden>
-      {particles.map((p) => (
-        <span
-          key={p.id}
-          className="vip-particle"
-          style={{
-            left: p.left,
-            top: "-5%",
-            width: p.size,
-            height: p.size,
-            animationDelay: p.delay,
-            animationDuration: p.duration,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function CoinShowcase({ currentVip }: { currentVip?: string }) {
-  return (
-    <div className="vip-coin-scene relative mx-auto h-52 w-52 sm:h-60 sm:w-60">
-      {/* Floor glow */}
-      <div className="vip-glow-breathe absolute bottom-2 left-1/2 h-8 w-36 -translate-x-1/2 rounded-[100%] bg-amber-400/30 blur-xl" />
-
-      <div className="vip-coin-orbit absolute left-1/2 top-1/2 h-11 w-11 -translate-x-1/2 -translate-y-1/2" style={{ animationDuration: "13s" }}>
-        <div className="absolute left-1/2 top-0 -translate-x-1/2">
-          <Coin3D size={40} spinSec={2.8} label="₮" />
-        </div>
-      </div>
-      <div
-        className="vip-coin-orbit absolute left-1/2 top-1/2 h-9 w-9 -translate-x-1/2 -translate-y-1/2"
-        style={{ animationDuration: "8.5s", animationDirection: "reverse", animationDelay: "-2.5s" }}
-      >
-        <div className="absolute left-1/2 top-0 -translate-x-1/2">
-          <Coin3D size={32} spinSec={2.4} label="$" variant="emerald" />
-        </div>
-      </div>
-      <div
-        className="vip-coin-orbit absolute left-1/2 top-1/2 h-8 w-8 -translate-x-1/2 -translate-y-1/2"
-        style={{ animationDuration: "16s", animationDelay: "-5s" }}
-      >
-        <div className="absolute left-1/2 top-0 -translate-x-1/2">
-          <Coin3D size={26} spinSec={3.5} label="V" />
-        </div>
-      </div>
-
-      <div className="vip-coin-tilt absolute inset-0 m-auto h-32 w-32 sm:h-36 sm:w-36">
-        <div className="vip-coin-float h-full w-full" style={{ animationDelay: "0.15s" }}>
-          <div className="relative h-full w-full">
-            <span className="vip-pulse-ring" style={{ inset: "-14px" }} />
-            <Coin3D size="100%" spinSec={4.8} label="VIP" large />
-          </div>
-        </div>
-      </div>
-
-      <div className="vip-coin-float absolute left-0 top-8 h-12 w-12" style={{ animationDelay: "-1.1s", animationDuration: "4s" }}>
-        <Coin3D size={48} spinSec={3.2} label="$" />
-      </div>
-      <div className="vip-coin-float absolute bottom-6 right-1 h-14 w-14" style={{ animationDelay: "-2.1s", animationDuration: "3.6s" }}>
-        <Coin3D size={56} spinSec={3.8} label="₮" variant="emerald" />
-      </div>
-      <div className="vip-coin-float absolute right-2 top-4 h-9 w-9" style={{ animationDelay: "-0.6s", animationDuration: "4.4s" }}>
-        <Coin3D size={36} spinSec={2.6} label="★" />
-      </div>
-
-      <Sparkles className="vip-sparkle absolute left-8 top-2 h-4 w-4 text-amber-300" style={{ animationDelay: "0.4s" }} />
-      <Sparkles className="vip-sparkle absolute bottom-14 right-10 h-3.5 w-3.5 text-primary" style={{ animationDelay: "1.2s" }} />
-
-      {currentVip ? (
-        <div className="absolute -bottom-1 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-full border border-amber-400/50 bg-background/85 px-3.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-amber-200 shadow-lg backdrop-blur">
-          <Crown className="mr-1 inline h-3 w-3 text-amber-300" />
-          {currentVip}
-        </div>
-      ) : (
-        <div className="absolute -bottom-1 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-full border border-border/60 bg-background/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground backdrop-blur">
-          Start your climb
-        </div>
-      )}
     </div>
   );
 }
@@ -368,122 +231,91 @@ function TierCard({
   onClaim: () => void;
 }) {
   const stepNeed = tier.stepRequired ?? tier.required;
-  const remaining = tier.remaining ?? stepNeed;
   const isClaimed = tier.status === "claimed" || tier.claimed;
   const isClaimable = tier.status === "claimable" || tier.claimable;
   const isSkipped = tier.status === "skipped" || tier.skipped;
-  const isReached = isClaimed || isClaimable;
-  const isLocked = !isReached && !isSkipped;
-  const waitingPrevious = tier.status === "pending_previous";
+  const progress = Math.max(0, Math.min(100, Number(tier.progress) || 0));
+  const showProgress = !isClaimed && !isSkipped && progress > 0 && progress < 100;
+  const topTier = tier.level >= 6;
 
   return (
-    <div
-      className={`vip-tier-enter group relative overflow-hidden rounded-2xl border p-4 transition-all sm:p-5 ${
-        isReached
-          ? "border-amber-400/40 bg-gradient-to-br from-amber-400/10 via-card/50 to-transparent"
-          : isSkipped
-            ? "border-border/40 bg-card/30 opacity-70"
-            : "border-border/50 bg-card/45 hover:border-border"
+    <article
+      className={`vip-tier-enter rounded-2xl border p-4 sm:p-5 ${
+        isClaimable
+          ? "border-amber-400/50 bg-gradient-to-r from-amber-400/12 via-card/80 to-card/60 vip-claimable-card"
+          : isClaimed
+            ? "border-primary/30 bg-primary/5"
+            : isSkipped
+              ? "border-border/40 bg-card/30 opacity-70"
+              : topTier
+                ? "border-amber-400/20 bg-card/60"
+                : "border-border/60 bg-card/50"
       }`}
       style={{ animationDelay: `${delayMs}ms` }}
     >
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent" />
-
-      <div className="relative flex gap-3.5 sm:gap-5">
-        <div className={`relative shrink-0 ${isLocked || isSkipped ? "opacity-40 grayscale" : ""}`}>
-          <div className={isReached ? "vip-coin-float" : ""} style={{ animationDuration: "4.5s" }}>
-            <Coin3D
-              size={64}
-              spinSec={isReached ? 5.5 : 9}
-              label={String(tier.level)}
-              variant="gold"
-              large
-            />
-          </div>
+      <div className="flex items-center gap-3 sm:gap-4">
+        <div
+          className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border text-sm font-bold ${
+            isClaimed
+              ? "border-primary/40 bg-primary/15 text-primary"
+              : isClaimable || topTier
+                ? "border-amber-400/40 bg-amber-400/15 text-amber-200"
+                : "border-border/70 bg-background/40 text-muted-foreground"
+          }`}
+        >
+          {isClaimed ? <Check className="h-4 w-4" /> : tier.level}
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span
-                  className={`text-lg font-extrabold tracking-tight sm:text-xl ${
-                    isReached ? "text-amber-200" : "text-foreground"
-                  }`}
-                >
-                  {tier.name}
-                </span>
-                {!isClaimed && (
-                  <StatusBadge
-                    status={
-                      isClaimable
-                        ? "claimable"
-                        : isSkipped
-                          ? "skipped"
-                          : waitingPrevious
-                            ? "pending_previous"
-                            : "locked"
-                    }
-                  />
-                )}
-              </div>
-
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs sm:text-sm">
-                <span className="rounded-lg border border-border/50 bg-background/40 px-2.5 py-1 font-mono text-muted-foreground">
-                  Need <span className="font-semibold text-foreground">${stepNeed.toLocaleString()}</span>
-                </span>
-                <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/50" />
-                <span className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 font-mono font-bold text-amber-200">
-                  +${tier.reward.toLocaleString()}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 self-center">
-              {isClaimable && (
-                <Button
-                  size="sm"
-                  disabled={claiming}
-                  onClick={onClaim}
-                  className="h-9 rounded-xl bg-gradient-to-r from-amber-300 via-amber-400 to-yellow-500 font-bold text-amber-950 shadow-[0_8px_24px_-8px_rgba(245,197,66,0.55)] hover:opacity-95"
-                >
-                  <Gift className="mr-1.5 h-3.5 w-3.5" />
-                  {claiming ? "Claiming…" : "Claim reward"}
-                </Button>
-              )}
-              {isSkipped && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
-                  Skipped
-                </span>
-              )}
-              {isLocked && (
-                <span className="inline-flex max-w-[11rem] items-center gap-1.5 rounded-full border border-border/50 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
-                  <Lock className="h-3.5 w-3.5 shrink-0" />
-                  {waitingPrevious
-                    ? "Claim a lower or matching tier first"
-                    : `Need $${remaining.toFixed(0)} more`}
-                </span>
-              )}
-            </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className={`text-base font-bold tracking-tight sm:text-lg ${isClaimable || isClaimed ? "text-foreground" : "text-foreground/90"}`}>
+              {tier.name}
+            </h3>
+            {isClaimable && <StatusBadge status="claimable" />}
+            {isClaimed && <StatusBadge status="claimed" />}
+            {isSkipped && <StatusBadge status="skipped" />}
           </div>
+          <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
+            Deposit <span className="font-mono text-foreground">${stepNeed.toLocaleString()}</span>
+          </p>
+          {showProgress && (
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+              <div className="vip-shimmer-bar h-full rounded-full" style={{ width: `${progress}%` }} />
+            </div>
+          )}
+        </div>
 
+        <div className="shrink-0 text-right">
+          <div className={`font-mono text-lg font-bold sm:text-xl ${isSkipped ? "text-muted-foreground" : "text-amber-200"}`}>
+            +${tier.reward.toLocaleString()}
+          </div>
+          <div className="text-[11px] text-muted-foreground">reward</div>
         </div>
       </div>
-    </div>
+
+      {isClaimable && (
+        <Button
+          disabled={claiming}
+          onClick={onClaim}
+          className="mt-4 h-10 w-full rounded-xl bg-gradient-to-r from-amber-300 via-amber-400 to-yellow-500 font-bold text-amber-950 hover:opacity-95 sm:ml-14 sm:w-auto"
+        >
+          <Gift className="mr-1.5 h-4 w-4" />
+          {claiming ? "Claiming…" : "Claim reward"}
+        </Button>
+      )}
+    </article>
   );
 }
 
-function StatusBadge({ status }: { status: Exclude<VipTierStatus["status"], "claimed"> }) {
+function StatusBadge({ status }: { status: "claimable" | "claimed" | "skipped" }) {
   const map = {
-    claimable: "bg-emerald-400/15 text-emerald-200 border-emerald-400/25",
-    locked: "bg-muted/60 text-muted-foreground border-border/50",
-    pending_previous: "bg-muted/60 text-muted-foreground border-border/50",
+    claimable: "bg-amber-400/15 text-amber-200 border-amber-400/30",
+    claimed: "bg-primary/15 text-primary border-primary/30",
     skipped: "bg-muted/60 text-muted-foreground border-border/50",
   };
   const label = {
     claimable: "Ready",
-    locked: "Locked",
-    pending_previous: "Locked",
+    claimed: "Claimed",
     skipped: "Skipped",
   };
   return (
@@ -493,32 +325,11 @@ function StatusBadge({ status }: { status: Exclude<VipTierStatus["status"], "cla
   );
 }
 
-function Stat({
-  label,
-  value,
-  accent,
-  className = "",
-  icon,
-}: {
-  label: string;
-  value: string;
-  accent?: string;
-  className?: string;
-  icon?: React.ReactNode;
-}) {
+function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div
-      className={`group relative overflow-hidden rounded-2xl border border-border/40 bg-card/50 p-4 backdrop-blur-sm transition-colors hover:border-amber-400/25 ${className}`}
-      style={{ boxShadow: "var(--shadow-elegant)" }}
-    >
-      <div className="pointer-events-none absolute -right-4 -top-4 h-16 w-16 rounded-full bg-amber-400/5 blur-xl transition-opacity group-hover:opacity-100" />
-      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-        {icon}
-        {label}
-      </div>
-      <div className={`mt-2 text-xl font-extrabold font-mono tracking-tight sm:text-2xl ${accent || ""}`}>
-        {value}
-      </div>
+    <div className="px-5 py-4">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-1 font-mono text-xl font-bold tracking-tight sm:text-2xl">{value}</div>
     </div>
   );
 }
