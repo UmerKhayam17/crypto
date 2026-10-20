@@ -6,6 +6,7 @@ const {
   suspendUser,
   adjustBalance,
   setBalance,
+  setVipLevel,
   updateProfile,
   deleteUser,
 } = require("../controller/userController");
@@ -21,6 +22,7 @@ router.patch("/:id/trade-control", updateTradeControl);
 router.patch("/:id/suspend", suspendUser);
 router.patch("/:id/balance/adjust", adminOnly, adjustBalance);
 router.patch("/:id/balance", adminOnly, setBalance);
+router.patch("/:id/vip-level", adminOnly, setVipLevel);
 router.patch("/:id/profile", updateProfile);
 router.delete("/:id", adminOnly, deleteUser);
 

@@ -28,6 +28,7 @@ import { mediaUrl } from "@/lib/media-url";
 import { apiListVipClaims, type VipClaim } from "@/services/vip";
 import { SupportInbox } from "@/components/support-inbox";
 import { apiListSupportThreads } from "@/services/support";
+import { getAccountLevelOptions } from "@/utils/account-level";
 import { TRADE_DURATIONS, profitPercentForDuration } from "@/constants/roles";
 import { TradeResultViewDialog, TradeViewButton } from "@/components/trade-result-view";
 
@@ -56,7 +57,7 @@ function AdminDashboard() {
     isAdmin, staffMe,
     allUsers, managedUsers, managedTrades, managedDeposits, managedWithdrawals,
     allTrades, walletsByUser, assets, allDeposits, allWithdrawals, walletAddress, allStaff, payoutPercent, spotFeePercent,
-    adminSuspendUser, adminAdjustBalance, adminSetBalance, adminDeleteUser, adminUpdateUser,
+    adminSuspendUser, adminAdjustBalance, adminSetBalance, adminSetVipLevel, adminDeleteUser, adminUpdateUser,
     adminSetForceOutcome, adminPlanTrade, adminForceCloseTrade, adminDeleteTrade, adminClearTrades,
     adminApproveKyc, adminRejectKyc,
     adminCreateStaff, adminUpdateStaff, adminDeleteStaff, loadStaff, loadUsers, adminAssignStaff,
@@ -94,7 +95,7 @@ function AdminDashboard() {
     fname: "", lname: "", email: "", phone: "", password: "", confirmPassword: "",
   });
   const [editStaffSubmitting, setEditStaffSubmitting] = useState(false);
-  const [editUser, setEditUser] = useState<{ id: string; fname: string; lname: string; email: string; phone: string; country: string } | null>(null);
+  const [editUser, setEditUser] = useState<{ id: string; fname: string; lname: string; email: string; phone: string; country: string; password: string; confirmPassword: string } | null>(null);
   const [rejectTarget, setRejectTarget] = useState<Deposit | null>(null);
   const [rejectWithdrawTarget, setRejectWithdrawTarget] = useState<Withdrawal | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -366,6 +367,27 @@ function AdminDashboard() {
                     </select>
                   ),
                 } satisfies AdminColumn<User>] : []),
+                ...(isAdmin ? [{
+                  key: "vipLevel",
+                  header: "VIP Level",
+                  hideOnMobile: true,
+                  cell: (u: User) => (
+                    <select
+                      value={String(u.vipLevel ?? 0)}
+                      onChange={async (e) => {
+                        const vipLevel = Number(e.target.value);
+                        const r = await adminSetVipLevel(u.id, vipLevel);
+                        if (r.ok) toast.success(r.msg);
+                        else toast.error(r.msg);
+                      }}
+                      className="h-7 max-w-[9rem] rounded border border-border bg-input px-1.5 text-xs"
+                    >
+                      {getAccountLevelOptions().map((option) => (
+                        <option key={option.level} value={String(option.level)}>{option.label}</option>
+                      ))}
+                    </select>
+                  ),
+                } satisfies AdminColumn<User>] : []),
                 { key: "cash", header: "Cash", align: "right", cell: (u) => <span className="font-mono">${(walletsByUser[u.id]?.cashUSDT || 0).toFixed(2)}</span> },
                 { key: "kyc", header: "KYC", hideOnMobile: true, cell: (u) => <KycPill status={u.kyc.status} /> },
                 { key: "outcome", header: "Trade control", hideOnMobile: true, cell: (u) => (
@@ -388,7 +410,7 @@ function AdminDashboard() {
                 { key: "actions", header: "Actions", align: "right", cell: (u) => (
                   <div className="flex flex-wrap justify-end gap-1">
                     {isAdmin && (
-                      <Button size="sm" variant="outline" onClick={() => setEditUser({ id: u.id, fname: u.fname, lname: u.lname, email: u.email, phone: u.phone, country: u.country })}>
+                      <Button size="sm" variant="outline" onClick={() => setEditUser({ id: u.id, fname: u.fname, lname: u.lname, email: u.email, phone: u.phone, country: u.country, password: "", confirmPassword: "" })}>
                         <Pencil className="mr-1 h-3 w-3" />Edit
                       </Button>
                     )}
@@ -1104,7 +1126,7 @@ function AdminDashboard() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit user</DialogTitle>
-            <DialogDescription>Update profile details. Email must be unique.</DialogDescription>
+            <DialogDescription>Update profile details. Leave password blank to keep the current password. Email must be unique.</DialogDescription>
           </DialogHeader>
           {editUser && (
             <div className="grid gap-3 sm:grid-cols-2">
@@ -1119,15 +1141,23 @@ function AdminDashboard() {
                   {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
                 </select>
               </div>
+              <div className="sm:col-span-2"><Label>New password (optional)</Label><PasswordInput value={editUser.password} onChange={(e) => setEditUser({ ...editUser, password: e.target.value })} placeholder="Leave blank to keep current" /></div>
+              <div className="sm:col-span-2"><Label>Confirm new password</Label><PasswordInput value={editUser.confirmPassword} onChange={(e) => setEditUser({ ...editUser, confirmPassword: e.target.value })} placeholder="Repeat new password" /></div>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditUser(null)}>Cancel</Button>
             <Button className="bg-primary text-primary-foreground" onClick={async () => {
               if (!editUser) return;
+              if (editUser.password || editUser.confirmPassword) {
+                if (editUser.password !== editUser.confirmPassword) {
+                  return toast.error("Passwords do not match");
+                }
+              }
               const r = await adminUpdateUser(editUser.id, {
                 fname: editUser.fname, lname: editUser.lname, email: editUser.email,
                 phone: editUser.phone, country: editUser.country,
+                ...(editUser.password ? { password: editUser.password } : {}),
               });
               if (!r.ok) return toast.error(r.msg);
               toast.success(r.msg);

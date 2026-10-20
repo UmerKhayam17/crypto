@@ -68,6 +68,8 @@ export function OrderBook({ symbol, mark }: { symbol: string; mark: number }) {
   const [midTone, setMidTone] = useState<"up" | "down" | null>(null);
 
   const depthRef = useRef<Depth | null>(null);
+  const markRef = useRef(mark);
+  markRef.current = mark;
   const lastMidRef = useRef(mark);
   const pendingRef = useRef<Depth | null>(null);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -108,7 +110,7 @@ export function OrderBook({ symbol, mark }: { symbol: string; mark: number }) {
       setDepth(first);
       const id = window.setInterval(() => {
         seed += 1;
-        publish(syntheticBook(mark, seed));
+        publish(syntheticBook(markRef.current, seed));
       }, 900);
       return () => {
         window.clearInterval(id);

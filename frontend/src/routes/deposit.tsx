@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useStore } from "@/context/store";
 
 import { RequireAuth } from "@/components/auth/require-auth";
+import { mediaUrl } from "@/lib/media-url";
 
 export default function DepositPage() {
   return (
@@ -167,7 +168,7 @@ function DepositContent() {
                   <div className="font-mono">${d.amount.toFixed(2)}</div>
                   <div className="text-xs text-muted-foreground">{new Date(d.createdAt).toLocaleString()}</div>
                   {d.txHash && <div className="font-mono text-xs text-muted-foreground truncate max-w-[200px]">{d.txHash}</div>}
-                  <a href={d.screenshot} target="_blank" rel="noreferrer" className="text-xs text-primary underline">View screenshot</a>
+                  <a href={mediaUrl(d.screenshot)} target="_blank" rel="noreferrer" className="text-xs text-primary underline">View screenshot</a>
                   {d.status === "rejected" && d.rejectReason && (
                     <div className="text-xs text-destructive">Reason: {d.rejectReason}</div>
                   )}

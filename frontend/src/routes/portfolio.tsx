@@ -9,6 +9,7 @@ import { useStore, type BinaryTrade } from "@/context/store";
 import { CountdownChip } from "@/components/binary-ticket";
 import { TradeResultViewDialog, TradeViewButton } from "@/components/trade-result-view";
 import { formatPrice } from "@/services/market-data";
+import { getAccountLevelLabel } from "@/utils/account-level";
 
 import { RequireAuth } from "@/components/auth/require-auth";
 
@@ -52,7 +53,9 @@ function PortfolioContent() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Portfolio</h1>
-            <p className="text-sm text-muted-foreground">Welcome back, {user.name}.</p>
+            <p className="text-sm text-muted-foreground">
+              Welcome back, {user.name}. Account level: <span className="font-semibold text-amber-300">{getAccountLevelLabel(user.vipLevel)}</span>
+            </p>
           </div>
           <div className="text-right text-xs text-muted-foreground">
             <div>Win payout</div>

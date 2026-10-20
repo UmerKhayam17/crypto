@@ -20,6 +20,7 @@ import {
   Crown,
 } from "lucide-react";
 import { useStore } from "@/context/store";
+import { getAccountLevelLabel } from "@/utils/account-level";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -67,11 +68,11 @@ export function SiteHeader() {
     pathname === "/support" ||
     (pathname.startsWith("/admin") && new URLSearchParams(search).get("section") === "support");
   const mobileTabs = [
-    { to: "/", label: "Home", Icon: House, active: pathname === "/" },
-    { to: "/markets", label: "Market", Icon: ChartCandlestick, active: pathname === "/markets" },
-    { to: "/trade", label: "Trades", Icon: BadgeDollarSign, active: pathname === "/trade" || pathname === "/portfolio" },
-    { to: profilePath, label: "Profile", Icon: CircleUserRound, active: pathname === profilePath || pathname === "/recharge-activity" || pathname === "/deposit" || pathname === "/withdraw" || pathname === "/kyc" || (profilePath === "/admin" && pathname.startsWith("/admin")) },
-    { to: supportPath, label: "Support", Icon: MessageSquareText, active: supportActive },
+    { to: "/", label: "Home", Icon: House, active: pathname === "/", badge: 0 },
+    { to: "/markets", label: "Market", Icon: ChartCandlestick, active: pathname === "/markets", badge: 0 },
+    { to: "/trade", label: "Trades", Icon: BadgeDollarSign, active: pathname === "/trade" || pathname === "/portfolio", badge: 0 },
+    { to: profilePath, label: "Profile", Icon: CircleUserRound, active: pathname === profilePath || pathname === "/recharge-activity" || pathname === "/deposit" || pathname === "/withdraw" || pathname === "/kyc" || (profilePath === "/admin" && pathname.startsWith("/admin")), badge: 0 },
+    { to: supportPath, label: "Support", Icon: MessageSquareText, active: supportActive, badge: supportUnread },
   ];
 
   return (
@@ -129,7 +130,7 @@ export function SiteHeader() {
                   </span>
                   <span className="hidden text-left md:block lg:block">
                     <span className="block text-xs font-semibold leading-tight">{user.fname}</span>
-                    <KycPill status={user.kyc.status} />
+                    <span className="block text-[11px] font-semibold leading-tight text-amber-300">{getAccountLevelLabel(user.vipLevel)}</span>
                   </span>
                 </button>
               </DropdownMenuTrigger>
@@ -137,6 +138,10 @@ export function SiteHeader() {
                 <DropdownMenuLabel className="flex flex-col">
                   <span className="text-sm font-semibold">{user.name}</span>
                   <span className="truncate text-xs font-normal text-muted-foreground">{user.email}</span>
+                  <span className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-amber-300">
+                    <Crown className="h-3 w-3" />
+                    {getAccountLevelLabel(user.vipLevel)}
+                  </span>
                   <span className="mt-1"><KycPill status={user.kyc.status} /></span>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />

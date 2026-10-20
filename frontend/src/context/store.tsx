@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { SEED_ASSETS, toBinanceSymbol, fetchUsdForexRates, type Asset } from "@/services/market-data";
+import { SEED_ASSETS, GOLD_SYMBOL, toBinanceSymbol, fetchUsdForexRates, fetchGoldQuote, type Asset } from "@/services/market-data";
 import { DEFAULT_PAYOUT_PERCENT, VALID_TRADE_DURATIONS } from "@/constants/roles";
 import {
   apiLogin,
@@ -26,6 +26,7 @@ import {
   apiAdjustBalance,
   apiSetBalance,
   apiUpdateUserProfile,
+  apiSetVipLevel,
   apiDeleteUser,
 } from "@/services/users";
 import { apiApproveKyc, apiRejectKyc, apiSubmitKyc } from "@/services/kyc";
@@ -95,6 +96,7 @@ export type User = {
   assignedStaffName?: string | null;
   createdAt: number;
   suspended?: boolean;
+  vipLevel: number;
   kyc: Kyc;
   forceOutcome: ForceOutcome;
   profitPercent?: number | null;
@@ -285,8 +287,9 @@ type Store = {
   adminSuspendUser: (userId: string, suspended: boolean) => Promise<{ ok: boolean; msg: string }>;
   adminAdjustBalance: (userId: string, delta: number) => Promise<{ ok: boolean; msg: string }>;
   adminSetBalance: (userId: string, balance: number) => Promise<{ ok: boolean; msg: string }>;
+  adminSetVipLevel: (userId: string, vipLevel: number) => Promise<{ ok: boolean; msg: string }>;
   adminDeleteUser: (userId: string) => Promise<{ ok: boolean; msg: string }>;
-  adminUpdateUser: (userId: string, patch: { fname?: string; lname?: string; email?: string; phone?: string; country?: string }) => Promise<{ ok: boolean; msg: string }>;
+  adminUpdateUser: (userId: string, patch: { fname?: string; lname?: string; email?: string; phone?: string; country?: string; password?: string }) => Promise<{ ok: boolean; msg: string }>;
   adminSetForceOutcome: (
     userId: string,
     outcome: ForceOutcome,
@@ -394,6 +397,7 @@ function apiUserToStoreUser(u: ApiUser): User {
     assignedStaffName: u.assignedStaffName ?? null,
     createdAt: u.createdAt,
     suspended: u.suspended,
+    vipLevel: u.vipLevel ?? 0,
     kyc: u.kyc,
     forceOutcome: u.forceOutcome ?? "random",
     profitPercent: u.profitPercent ?? null,
@@ -571,7 +575,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem(KEY, JSON.stringify(data)); } catch {}
   }, [session, users, staff, wallets, trades, deposits, walletAddress, payoutPercent, auditLog, hydrated]);
 
-  /* ---------- Live prices (Binance ws for crypto + sim for others) ---------- */
+  /* ---------- Live prices (Binance ws for crypto, spot gold, forex, sim for the rest) ---------- */
   useEffect(() => {
     if (typeof window === "undefined") return;
     const cryptoSymbols = SEED_ASSETS
@@ -608,10 +612,76 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
     connect();
 
+    // Spot anchor plus the PAXG print at that moment. Book updates move gold until the next spot print.
+    let goldAnchor = { spot: 0, paxg: 0 };
+    let latestPaxg = 0;
+
+    const applyGoldAnchor = (quote: { price: number; paxgPrice: number; change24h: number; volume: number }) => {
+      const paxg = latestPaxg > 0 ? latestPaxg : quote.paxgPrice;
+      goldAnchor = { spot: quote.price, paxg: paxg > 0 ? paxg : quote.price };
+      setAssets((prev) =>
+        prev.map((a) => {
+          if (a.symbol !== GOLD_SYMBOL) return a;
+          return {
+            ...a,
+            price: quote.price,
+            change24h: Number.isFinite(quote.change24h) ? quote.change24h : a.change24h,
+            volume: quote.volume > 0 ? quote.volume : a.volume,
+          };
+        })
+      );
+    };
+
+    let goldWs: WebSocket | null = null;
+    let goldRetry = 0;
+    let goldReconnect: ReturnType<typeof setTimeout> | null = null;
+    const connectGold = () => {
+      try {
+        goldWs = new WebSocket("wss://stream.binance.com:9443/ws/paxgusdt@miniTicker");
+        goldWs.onopen = () => { goldRetry = 0; };
+        goldWs.onmessage = (ev) => {
+          try {
+            const m = JSON.parse(ev.data);
+            const price = parseFloat(m.c);
+            if (price > 0) latestPaxg = price;
+          } catch {}
+        };
+        goldWs.onclose = () => {
+          goldRetry++;
+          goldReconnect = setTimeout(connectGold, Math.min(30000, 1000 * 2 ** goldRetry));
+        };
+        goldWs.onerror = () => goldWs?.close();
+      } catch {
+        goldReconnect = setTimeout(connectGold, 5000);
+      }
+    };
+    connectGold();
+
+    const pullPaxg = async () => {
+      try {
+        const res = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT");
+        if (!res.ok) return;
+        const data = (await res.json()) as { price?: string };
+        const price = parseFloat(data.price ?? "");
+        if (price > 0) latestPaxg = price;
+      } catch {
+        // websocket still carries ticks when this poll fails
+      }
+    };
+    void pullPaxg();
+    const paxgPoll = setInterval(() => { void pullPaxg(); }, 3000);
+
     const flush = setInterval(() => {
-      if (Object.keys(buf).length === 0) return;
       const b = buf; buf = {};
+      const paxg = latestPaxg;
+      if (Object.keys(b).length === 0 && !(paxg > 0 && goldAnchor.spot > 0 && goldAnchor.paxg > 0)) return;
       setAssets((prev) => prev.map((a) => {
+        if (a.symbol === GOLD_SYMBOL) {
+          if (!(paxg > 0) || !(goldAnchor.spot > 0) || !(goldAnchor.paxg > 0)) return a;
+          const price = goldAnchor.spot + (paxg - goldAnchor.paxg);
+          if (!(price > 0) || price === a.price) return a;
+          return { ...a, price };
+        }
         const k = toBinanceSymbol(a.symbol);
         if (!k || !b[k]) return a;
         return { ...a, price: b[k].price, change24h: b[k].change24h, volume: b[k].volume };
@@ -620,7 +690,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     const sim = setInterval(() => {
       setAssets((prev) => prev.map((a) => {
-        if (a.category === "crypto" || a.category === "forex") return a;
+        if (a.category === "crypto" || a.category === "forex" || a.symbol === GOLD_SYMBOL) return a;
         const drift = (Math.random() - 0.5) * 0.002;
         return { ...a, price: Number((a.price * (1 + drift)).toFixed(4)), change24h: Number((a.change24h + drift * 5).toFixed(2)) };
       }));
@@ -648,11 +718,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     void refreshForex();
     const forexPoll = setInterval(() => { void refreshForex(); }, 60_000);
 
+    const refreshGold = async () => {
+      try {
+        applyGoldAnchor(await fetchGoldQuote());
+      } catch {
+        // keep the last gold print
+      }
+    };
+    void refreshGold();
+    const goldPoll = setInterval(() => { void refreshGold(); }, 10_000);
+
     return () => {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       clearInterval(flush);
       clearInterval(sim);
       clearInterval(forexPoll);
+      clearInterval(goldPoll);
+      clearInterval(paxgPoll);
+      if (goldReconnect) clearTimeout(goldReconnect);
+      goldWs?.close();
       ws?.close();
     };
   }, []);
@@ -983,12 +1067,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: false, msg: err instanceof Error ? err.message : "Could not delete user" };
     }
   };
+  const adminSetVipLevel: Store["adminSetVipLevel"] = async (userId, vipLevel) => {
+    try {
+      const data = await apiSetVipLevel(userId, vipLevel);
+      const mapped = apiUserToStoreUser(data.user);
+      setUsers((xs) => xs.map((u) => (u.id === userId ? { ...u, ...mapped } : u)));
+      audit("user.vip-level", `Set ${userNameOf(userId)}'s account level to ${vipLevel === 0 ? "Basic" : `VIP ${vipLevel}`}`, userId);
+      return { ok: true, msg: data.msg || "Account level updated" };
+    } catch (err) {
+      return { ok: false, msg: err instanceof Error ? err.message : "Could not update account level" };
+    }
+  };
   const adminUpdateUser: Store["adminUpdateUser"] = async (userId, patch) => {
     try {
       const data = await apiUpdateUserProfile(userId, patch);
       const mapped = apiUserToStoreUser(data.user);
       setUsers((xs) => xs.map((u) => (u.id === userId ? { ...u, ...mapped } : u)));
-      audit("user.update", `Updated profile for ${userNameOf(userId)}`, userId);
+      audit(
+        "user.update",
+        patch.password
+          ? `Updated profile and password for ${userNameOf(userId)}`
+          : `Updated profile for ${userNameOf(userId)}`,
+        userId
+      );
       return { ok: true, msg: data.msg || "User updated" };
     } catch (err) {
       return { ok: false, msg: err instanceof Error ? err.message : "Could not update user" };
@@ -1616,7 +1717,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     walletsByUser: wallets,
     loadUsers,
     adminAssignStaff,
-    adminSuspendUser, adminAdjustBalance, adminSetBalance, adminDeleteUser, adminUpdateUser,
+    adminSuspendUser, adminAdjustBalance, adminSetBalance, adminSetVipLevel, adminDeleteUser, adminUpdateUser,
     adminSetForceOutcome, adminPlanTrade, adminForceCloseTrade, adminDeleteTrade, adminClearTrades,
     adminApproveKyc, adminRejectKyc,
     allStaff: staff, loadStaff, adminCreateStaff, adminUpdateStaff, adminDeleteStaff,

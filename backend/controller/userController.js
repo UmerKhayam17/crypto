@@ -5,6 +5,7 @@ const Withdrawal = require("../model/Withdrawal");
 const SpotPosition = require("../model/SpotPosition");
 const formatUser = require("../utils/formatUser");
 const { creditWallet } = require("../utils/wallet");
+const { validatePassword } = require("../utils/validators");
 const notify = require("../utils/realtimeNotify");
 
 async function canAccessUser(actor, userId) {
@@ -70,6 +71,41 @@ exports.assignStaff = async (req, res) => {
   } catch (err) {
     console.error("Assign staff error:", err);
     return res.status(500).json({ ok: false, msg: "Could not assign staff" });
+  }
+};
+
+exports.setVipLevel = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ ok: false, msg: "Admin access required" });
+    }
+
+    const platformUser = await User.findOne({ _id: req.params.id, role: "user" });
+    if (!platformUser) {
+      return res.status(404).json({ ok: false, msg: "User not found" });
+    }
+
+    const requestedLevel = Number(req.body?.vipLevel ?? req.body?.level ?? 0);
+    const allowed = [0, 1, 2, 3, 4, 5, 6];
+    if (!allowed.includes(requestedLevel)) {
+      return res.status(400).json({ ok: false, msg: "Invalid VIP level" });
+    }
+
+    platformUser.vipLevel = requestedLevel;
+    await platformUser.save();
+    await platformUser.populate("assignedStaff", "fname lname");
+
+    const formatted = formatUser(platformUser, { staff: true });
+    notify.userUpdated(formatted);
+
+    return res.json({
+      ok: true,
+      msg: requestedLevel === 0 ? "Account level reset to Basic" : `Account level set to VIP ${requestedLevel}`,
+      user: formatted,
+    });
+  } catch (err) {
+    console.error("Set VIP level error:", err);
+    return res.status(500).json({ ok: false, msg: "Could not update account level" });
   }
 };
 
@@ -268,6 +304,16 @@ exports.updateProfile = async (req, res) => {
     }
     if (phone != null) platformUser.phone = String(phone).trim();
     if (country != null) platformUser.country = String(country).trim();
+
+    const nextPassword = req.body.password != null ? String(req.body.password) : "";
+    if (nextPassword) {
+      if (req.user.role !== "admin") {
+        return res.status(403).json({ ok: false, msg: "Admin access required" });
+      }
+      const pwErr = validatePassword(nextPassword);
+      if (pwErr) return res.status(400).json({ ok: false, msg: pwErr });
+      platformUser.password = nextPassword;
+    }
 
     await platformUser.save();
     await platformUser.populate("assignedStaff", "fname lname");

@@ -79,11 +79,18 @@ export async function apiSetBalance(
 
 export async function apiUpdateUserProfile(
   userId: string,
-  patch: { fname?: string; lname?: string; email?: string; phone?: string; country?: string }
+  patch: { fname?: string; lname?: string; email?: string; phone?: string; country?: string; password?: string }
 ): Promise<{ ok: boolean; msg: string; user: ApiUser }> {
   return request(`/api/users/${userId}/profile`, {
     method: "PATCH",
     body: JSON.stringify(patch),
+  });
+}
+
+export async function apiSetVipLevel(userId: string, vipLevel: number): Promise<{ ok: boolean; msg: string; user: ApiUser }> {
+  return request(`/api/users/${userId}/vip-level`, {
+    method: "PATCH",
+    body: JSON.stringify({ vipLevel }),
   });
 }
 

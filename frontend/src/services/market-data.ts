@@ -154,13 +154,89 @@ export const SEED_ASSETS: Asset[] = [
   { symbol: "AAPL", name: "Apple Inc.", price: 218.42, change24h: 1.05, volume: 52_000_000, marketCap: 3_320_000_000_000, category: "stocks" },
   { symbol: "TSLA", name: "Tesla", price: 242.18, change24h: -2.14, volume: 98_000_000, marketCap: 770_000_000_000, category: "stocks" },
   { symbol: "NVDA", name: "NVIDIA", price: 1184.32, change24h: 3.62, volume: 42_000_000, marketCap: 2_910_000_000_000, category: "stocks" },
-  { symbol: "XAU/USD", name: "Gold", price: 2342.18, change24h: 0.62, volume: 0, marketCap: 0, category: "metals" },
+  { symbol: "XAU/USD", name: "Gold", price: 4195.6, change24h: -0.21, volume: 0, marketCap: 0, category: "metals" },
   { symbol: "XAG/USD", name: "Silver", price: 29.84, change24h: 1.12, volume: 0, marketCap: 0, category: "metals" },
   { symbol: "XPT/USD", name: "Platinum", price: 1018.50, change24h: -0.34, volume: 0, marketCap: 0, category: "metals" },
   { symbol: "XPD/USD", name: "Palladium", price: 942.30, change24h: -1.08, volume: 0, marketCap: 0, category: "metals" },
 ];
 
 export const FOREX_SYMBOLS = SEED_ASSETS.filter((a) => a.category === "forex").map((a) => a.symbol);
+
+/** Spot gold. The seed price above is only a fallback until the live feed connects. */
+export const GOLD_SYMBOL = "XAU/USD";
+
+/** PAX Gold (1 troy oz) tracks the spot market and supplies ticks, 24h change, and candles. */
+const GOLD_PROXY_BINANCE = "PAXGUSDT";
+const GOLD_SPOT_URL = "https://api.gold-api.com/price/XAU";
+
+export type GoldQuote = {
+  price: number;
+  /** PAXG last price captured with this spot print, used to apply later market ticks. */
+  paxgPrice: number;
+  change24h: number;
+  volume: number;
+};
+
+function plausibleGold(price: number): boolean {
+  return Number.isFinite(price) && price > 500 && price < 50000;
+}
+
+/**
+ * Live XAU/USD. Spot comes from gold-api; 24h change and the proxy print come from Binance PAXG.
+ * If the spot feed is down, the PAXG market price is used so gold still follows the market.
+ */
+export async function fetchGoldQuote(): Promise<GoldQuote> {
+  const [spotRes, tickerRes] = await Promise.all([
+    fetch(GOLD_SPOT_URL)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Gold spot failed: ${res.status}`);
+        return (await res.json()) as { price?: number };
+      })
+      .catch(() => null),
+    fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${GOLD_PROXY_BINANCE}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Gold ticker failed: ${res.status}`);
+        return (await res.json()) as { lastPrice?: string; priceChangePercent?: string; quoteVolume?: string };
+      })
+      .catch(() => null),
+  ]);
+
+  const spot = Number(spotRes?.price);
+  const paxgPrice = Number(tickerRes?.lastPrice);
+  const change24h = Number(tickerRes?.priceChangePercent);
+  const volume = Number(tickerRes?.quoteVolume);
+  const spotOk = plausibleGold(spot);
+  const paxgOk = plausibleGold(paxgPrice);
+  if (!spotOk && !paxgOk) throw new Error("Gold quote unavailable");
+
+  const price = spotOk ? spot : paxgPrice;
+  return {
+    price,
+    paxgPrice: paxgOk ? paxgPrice : price,
+    change24h: Number.isFinite(change24h) ? change24h : 0,
+    volume: Number.isFinite(volume) && volume > 0 ? volume : 0,
+  };
+}
+
+/** Real PAXG candles scaled so the last close matches the current gold spot. */
+export async function fetchGoldCandles(interval: Interval, limit = 120): Promise<Candle[]> {
+  const [candles, quote] = await Promise.all([
+    fetchKlines(GOLD_PROXY_BINANCE, interval, limit),
+    fetchGoldQuote().catch(() => null),
+  ]);
+  const last = candles[candles.length - 1]?.c ?? 0;
+  const spot = quote?.price ?? 0;
+  if (!(last > 0) || !(spot > 0)) return candles;
+  const scale = spot / last;
+  return candles.map((c) => ({
+    t: c.t,
+    o: c.o * scale,
+    h: c.h * scale,
+    l: c.l * scale,
+    c: c.c * scale,
+    v: c.v,
+  }));
+}
 
 /** Display price with enough decimals to show small entry/close differences. */
 export function formatPrice(p: number): string {
