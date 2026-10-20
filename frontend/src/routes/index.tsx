@@ -131,7 +131,7 @@ export default function IndexPage() {
               Earn rewards as you grow
             </h2>
             <p className="mx-auto mt-3 max-w-xl text-primary-foreground/85">
-              Unlock VIP tiers with deposits and claim cash rewards — up to $10,000 on SVIP 6.
+              Unlock VIP tiers with deposits — up to $10,000 on SVIP 6.
             </p>
           </div>
 
