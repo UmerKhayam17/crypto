@@ -206,10 +206,6 @@
   0%, 100% { transform: rotateX(12deg) rotateY(-18deg); }
   50% { transform: rotateX(18deg) rotateY(18deg); }
 }
-@keyframes vip-shimmer {
-  0% { background-position: 0% 50%; }
-  100% { background-position: 200% 50%; }
-}
 @keyframes vip-rise-in {
   from { opacity: 0; transform: translateY(22px) scale(0.96); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -316,19 +312,6 @@
   animation: vip-rise-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.vip-shimmer-bar {
-  background: linear-gradient(
-    90deg,
-    oklch(0.72 0.17 158),
-    oklch(0.88 0.14 85),
-    oklch(0.78 0.16 145),
-    oklch(0.88 0.14 85),
-    oklch(0.72 0.17 158)
-  );
-  background-size: 220% 100%;
-  animation: vip-shimmer 2s linear infinite;
-}
-
 .vip-pulse-ring {
   position: absolute;
   inset: -8px;
@@ -374,7 +357,6 @@
   .vip-coin-spin,
   .vip-coin-orbit,
   .vip-coin-tilt,
-  .vip-shimmer-bar,
   .vip-tier-enter,
   .vip-pulse-ring,
   .vip-sparkle,
